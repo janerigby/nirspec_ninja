@@ -28,4 +28,5 @@ The links above provide usage instructions for each tool.
 
 See [migration status and development notes](MIGRATION_STATUS.md) for implementation history, compatibility changes, and remaining work, and [live-service test instructions](scripts/README.md) for WISE and AWS/MAST smoke tests.
 
-## GAI acknowledgement:  much of this code was written using the Codex code assistant, version 6.1
+## GAI acknowledgement: 
+Much of this code was written or adapted using the Codex code assistant version 6.1
