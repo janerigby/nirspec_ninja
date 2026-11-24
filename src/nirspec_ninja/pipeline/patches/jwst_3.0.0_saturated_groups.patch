@@ -1,0 +1,48 @@
+--- a/jwst/clean_flicker_noise/clean_flicker_noise.py
++++ b/jwst/clean_flicker_noise/clean_flicker_noise.py
+@@ -1239,7 +1239,7 @@
+     """
+     Mask unusable data, according to DQ.
+ 
+-    Currently, JUMP and DO_NOT_USE flags are used.
++    Currently, JUMP, DO_NOT_USE, and SATURATED flags are used.
+     The mask is updated in place
+ 
+     Parameters
+@@ -1253,6 +1253,8 @@
+     mask[dnu] = False
+     jump = (dq & dqflags.group["JUMP_DET"]) > 0
+     mask[jump] = False
++    saturated = (dq & dqflags.group["SATURATED"]) > 0
++    mask[saturated] = False
+ 
+ 
+ def do_correction(
+--- /dev/null
++++ b/jwst/clean_flicker_noise/tests/test_saturated_group_mask.py
+@@ -0,0 +1,25 @@
++"""Saturated ramp groups must not be used for flicker-noise fitting."""
++import numpy as np
++from stdatamodels.jwst.datamodels import dqflags
++from jwst.clean_flicker_noise.clean_flicker_noise import _mask_unusable
++
++
++def test_reject_saturated_groups_with_supplied_mask():
++    # A supplied all-True mask cannot make an invalid group usable.
++    dq = np.array([[0, dqflags.group["SATURATED"]],
++                   [dqflags.group["JUMP_DET"], dqflags.group["DO_NOT_USE"]]],
++                  dtype=np.uint8)
++    original_dq = dq.copy()
++    mask = np.ones(dq.shape, dtype=bool)
++    _mask_unusable(mask, dq)
++    np.testing.assert_array_equal(mask, [[True, False], [False, False]])
++    np.testing.assert_array_equal(dq, original_dq)
++
++
++def test_keep_valid_early_group_and_existing_mask_exclusions():
++    dq = np.array([[0, 0], [dqflags.group["SATURATED"],
++                           dqflags.group["SATURATED"] | dqflags.group["JUMP_DET"]]],
++                  dtype=np.uint8)
++    mask = np.array([[True, False], [True, True]], dtype=bool)
++    _mask_unusable(mask, dq)
++    np.testing.assert_array_equal(mask, [[True, False], [False, False]])

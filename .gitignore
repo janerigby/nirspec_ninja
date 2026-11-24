@@ -1,0 +1,58 @@
+# Python bytecode and test/tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Local Python environments and package builds
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+dist/
+
+# Notebook checkpoints (keep the notebooks themselves)
+.ipynb_checkpoints/
+
+# macOS files and editor backups
+.DS_Store
+._*
+*~
+*.swp
+*.swo
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Downloaded images and plotting caches
+finder_cache/
+.mplconfig/
+mpl_config/
+
+# JWST data and generated reduction products
+*.fits
+*.fits.gz
+*.fits.fz
+*.asdf
+*.extrapolation.json
+*.flicker_patch.json
+flicker_noise_rms.txt
+
+# Local output directories and logs
+/downloads/
+/outputs/
+/results/
+/runs/
+*.log
+
+# Local cleanup inventory (keep documentation and bundled baseline CSVs)
+/CLEANUP_CANDIDATES_*.csv

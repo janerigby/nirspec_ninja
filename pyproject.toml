@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nirspec-ninja"
+version = "0.1.0"
+description = "Reusable NIRSpec masks and reduction tools"
+requires-python = ">=3.11"
+dependencies = ["jwst>=3.0.0", "numpy", "astropy", "gwcs", "stdatamodels", "scipy", "matplotlib", "pandas", "pysiaf", "astroquery", "requests"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["nirspec_ninja*"]
+
+[tool.setuptools.package-data]
+"nirspec_ninja.pipeline" = ["*.md"]
+"nirspec_ninja.pipeline.patches" = ["*.patch", "*.md"]
+
+"nirspec_ninja.artifacts" = ["*.md", "baselines/*.csv", "baselines/*.json", "baselines/*.md"]
+"nirspec_ninja.finder" = ["*.md"]
+"nirspec_ninja.archive" = ["*.md", "docs/*.md"]
+
+"nirspec_ninja.masks" = ["*.md"]
+"nirspec_ninja.fixed_slit" = ["*.md"]
+"nirspec_ninja.subtract_background" = ["*.md"]
+"nirspec_ninja.diagnostics" = ["*.md"]

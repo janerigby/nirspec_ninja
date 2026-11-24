@@ -1,0 +1,44 @@
+Subject: JWST NIRSpec moving-target observations incorrectly labeled mtFlag=False
+
+Hello MAST Help Desk,
+
+In the course of a research project, I happened to find some JWST NIRSpec observations whose FITS TARGTYPE indicates they are moving targets,  but the MAST CAOM observation metadata reports mtFlag=False. Consequently, an astroquery.mast query with mtFlag=True systematically omits these files, while mtFlag=False includes them.
+
+Here are some example files from several different programs:
+
+jw01444002001_04102_00001_nrs1_uncal.fits
+jw02416003001_03101_00001_nrs1_uncal.fits
+jw02550013001_02101_00001_nrs1_uncal.fits
+jw02127002001_03101_00001_nrs1_uncal.fits
+jw01254006001_02101_00001_nrs1_uncal.fits
+jw01231001001_02101_00001_nrs1_uncal.fits
+jw01273006001_03101_00001_nrs1_uncal.fits
+jw02876001001_03101_00001_nrs1_uncal.fits
+jw04250005001_03101_00001_nrs1_uncal.fits
+jw03991005001_02101_00001_nrs1_uncal.fits
+jw06714002001_03101_00001_nrs1_uncal.fits
+jw05551002001_03101_00001_nrs1_uncal.fits
+jw04665004001_02101_00001_nrs1_uncal.fits
+jw12499001001_02101_00001_nrs1_uncal.fits
+
+I had AI check these files against the live MAST service on 2026-10-23; every one returned mtFlag=False.
+
+Could you please investigate whether mtFlag is being populated incorrectly for these JWST observations?  Should we be using another MAST field to discriminate between moving target and fixed observations?
+
+Thank you!
+-Jane
+
+
+
+
+Minimal reproduction:
+
+from astroquery.mast import Observations
+
+for root in ["jw01444002001", "jw02416003001", "jw02550013001"]:
+    table = Observations.query_criteria(obs_id=f"{root}*")
+    print(table[["obs_id", "proposal_id", "mtFlag", "target_name"]])
+
+For example, querying jw01444002001* returns mtFlag=False. In contrast, jw01191009001* returns mtFlag=True, showing that the mtFlag=True query mechanism itself is functioning but classifies a disjoint set of observations.
+
+

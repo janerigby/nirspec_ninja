@@ -1,0 +1,14 @@
+{
+  "source": "fresh_v2/many_masks_expanded_results_v02/scores.csv",
+  "sha256": "4c5b4ba5d34f8affca8d6ccc4eb8479311b9ebb6bc564fedcd6c38bf8ba1a72f",
+  "rows": 146,
+  "groups": {
+    "IFU_bad": 22,
+    "IFU_okay": 36,
+    "MSA_bad": 11,
+    "MSA_okay": 37,
+    "Mystery_set1": 40
+  },
+  "column_reference": "fresh_v2/reference.npz",
+  "column_reference_sha256": "405f2a13e8e13478208530eed6522830242430ecda9b50c4d875bfabbb5455ee"
+}
