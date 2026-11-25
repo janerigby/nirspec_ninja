@@ -93,11 +93,11 @@ class NotebookStageSettingsTests(unittest.TestCase):
         with patch('nirspec_ninja.fixed_slit.extraction.wrap_median_combine_level3_nirspecFS') as extract:
             extract.return_value = [{'status': 'ok'}]
             self.assertEqual(workers.run_extract('input', 'output')['status'], 'ok')
-            extract.assert_called_with('input', 'output', clip_nan=5, return_report=True)
+            extract.assert_called_with('input', 'output', clip_nan=5, return_report=True, detect_traces=True)
             self.assertEqual(workers.run_extract('input', 'output', explicit)['status'], 'ok')
-            extract.assert_called_with('input', 'output', clip_nan=5, return_report=True)
+            extract.assert_called_with('input', 'output', clip_nan=5, return_report=True, detect_traces=True)
             self.assertEqual(workers.run_extract('input', 'output', 3)['status'], 'ok')
-            extract.assert_called_with('input', 'output', clip_nan=3, return_report=True)
+            extract.assert_called_with('input', 'output', clip_nan=3, return_report=True, detect_traces=True)
             extract.side_effect = RuntimeError('example extraction failure')
             with patch('builtins.print') as report:
                 self.assertEqual(workers.run_extract('input', 'output', 3)['status'], 'failed')

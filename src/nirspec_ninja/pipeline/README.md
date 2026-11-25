@@ -52,6 +52,13 @@ settings take precedence over worker defaults.
 | Spec3 | Configure the nested step dictionary, including outlier detection. Pipeline products are saved. |
 | Extraction | `clip_nan` controls excluded edge rows; its default is 5. |
 
+The notebook's extraction worker runs continuum source detection and writes
+`trace_sig2` (corrected sigma) and `non-flat` (masked spatial non-flatness, %)
+to each extracted CSV's comment header. These measurements identify spectra
+that need inspection before use as sky; they do not alter extracted fluxes.
+Unavailable scores are written as `nan` with a reason, and reported in the
+worker summary. See [extraction diagnostics](../fixed_slit/README.md).
+
 The mask worker defaults to WCS masking for MSA and fixed slits, illumination
 refinement at 5 sigma, and grating extrapolation. Broad fixed-slit strips and
 prism strips are off. These worker defaults differ from the standalone mask

@@ -46,6 +46,8 @@ def measure_extraction_diagnostics(infile, thisslit, intype, median_2D,
         values[mask[rows[0]:rows[-1] + 1]] = np.nan
         flatness = spatial_flatness(x, values)
         flatness['trace_masked'] = bool(mask.any())
+        if flatness['status'] == 'ok' and flatness.get('fractional_departure') is None:
+            flatness.update(status='unavailable', reason='Near-zero background baseline')
     except ValueError as error:
         flatness['reason'] = str(error)
     return trace, flatness
@@ -312,6 +314,7 @@ def median_combine_level3_nirspecFS2(infile, thisslit, outdir, sci_to_wave_off='
     header = '# Custom background from NIRSpec fixed slit, from median combine of all exposures and\n'
     header += '# spatial direction, from Level 3 CAL or S2D file\n'
     header += '# filename ' + basename(infile) + '\n'
+    header += '# Diagnostics: trace_sig2 is corrected sigma; non-flat is spatial non-flatness (%)\n'
     for key, value in myheaderdict.items():
         header += '##' + key + ' ' + str(value) + '\n'
     with open(outdir + outfile, "w") as handle:

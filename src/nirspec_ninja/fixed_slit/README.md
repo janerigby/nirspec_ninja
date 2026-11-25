@@ -41,6 +41,22 @@ slash. `clip_nan` controls the margin excluded near edges or mostly-NaN rows.
 `detect_traces=True` (the default) also runs source detection and records
 successful detection significance as `trace_sig2` in the CSV header.
 
+The multiprocessor notebook's `run_extract` worker explicitly enables detection.
+CSV comment headers contain `##trace_sig2` (corrected significance in sigma)
+and `##non-flat` (spatial non-flatness in percent). The non-flatness measurement
+uses the same common-wavelength profile, pixel/edge masks, and 99%-flux source
+mask as the gradient plots, so the extracted spectra can be screened for strong
+remaining gradients. `-1` overrides from diagnostic tables are not applied by
+this notebook extractor. CAL inputs are assessed on their combined 2D image;
+S2Ds use their original SCI/ERR/DQ and wavelength arrays.
+
+Diagnostics do not change the extracted spectrum. An unavailable score is
+written as `##non-flat nan`, with `non-flat_status` and `non-flat_reason`;
+a failed trace fit is reported without `trace_sig2`, while extraction continues.
+`detect_traces=False` skips detection and source masking but still measures
+non-flatness. The [provisional 8% review threshold](../diagnostics/README.md)
+is not an automatic rejection rule.
+
 See [background estimation and subtraction](../subtract_background/README.md)
 for using fixed-slit measurements to estimate IFU sky backgrounds.
 

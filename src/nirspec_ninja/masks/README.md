@@ -90,7 +90,7 @@ wider mask. Fit diagnostics are saved beside the FITS mask as
 `.extrapolation.json`.
 
 When **no nominal IFU WCS falls on a detector**, such as G235M on NRS2, the
-opt-in path instead predicts where the IFU apertures land using CRDS optical
+extension path instead predicts where the IFU apertures land using CRDS optical
 reference files and the installed grating transforms, emitting a warning. It
 projects full apertures for orders 1–3, from the wavelength-reference blue
 bound to 5.3 microns.
@@ -153,11 +153,10 @@ the mask-generation cell. The worker is
 `nirspec_ninja.pipeline.notebook_workers.make_rate_custom_mask`. Restart the
 kernel after worker-code changes. See the [fixed-slit notebook](../../../Reduce-and-extract_fixedslit-multicores_v2.ipynb).
 
-## Required plots for each new grating/filter configuration
+## Assess masks for other grating/filter configurations
 
-User requirement recorded 2026-11-24: whenever masking support or validation
-expands to a new grating/filter combination, always show the user a summary
-figure like the program 3843 high-grating figures. Include the full extent of
+When assessing a new grating/filter combination, compare the mask with detector
+illumination in a full-detector summary like the program 3843 high-grating figures. Include the full extent of
 both NRS1 and NRS2, nominal WCS aperture boundaries, predicted extensions or
 additional-order apertures, and the observed extra illumination. Include a
 measured aperture-minus-adjacent-gap profile outside nominal coverage so that
