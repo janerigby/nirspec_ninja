@@ -40,6 +40,24 @@ def write_s2d(path, slit_levels, start=60000.0, end=60000.001, with_dq=True):
 
 
 class ResamplingTests(unittest.TestCase):
+    def test_load_saved_diagnostic_curve_and_missing_configuration(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            path = tmp / 'G235H_F170LP_smoothed_bkg.csv'
+            wave = np.linspace(1., 2., 100)
+            np.savetxt(path, np.column_stack((wave, 2 + wave, np.zeros(len(wave)))),
+                       delimiter=',', header='wavelength_um,median_bkg_MJy_sr,interpolated', comments='')
+            path.with_suffix('.json').write_text(json.dumps(dict(grating='G235H', filter='F170LP',
+                units='MJy/sr', contributing_slits=['S200A1'])))
+            estimate = bg.load_diagnostic_background(tmp, 'G235H', 'F170LP', np.array([.5, 1.2, 1.8, 2.5]))
+            np.testing.assert_allclose(estimate['brightness'], [np.nan, 3.2, 3.8, np.nan], equal_nan=True, atol=.01)
+            self.assertTrue(np.isnan(estimate['uncertainty']).all())
+            self.assertEqual(estimate['used'][0]['source'], 'diagnostic_smoothed_FS')
+            self.assertEqual(len(estimate['used'][0]['sha256']), 64)
+            with self.assertRaises(FileNotFoundError):
+                bg.load_diagnostic_background(tmp, 'G140H', 'F100LP', wave)
+
     def test_constant_density_preserved_on_nonuniform_grid(self):
         native = np.array([1, 1.1, 1.3, 1.7, 2.2, 2.8], dtype=float)
         output = np.array([1.2, 1.5, 1.9, 2.3])
@@ -366,6 +384,27 @@ class CubeWorkflowTests(unittest.TestCase):
                 self.assertEqual(len(r['fs_files']), 1)
                 self.assertEqual(bg.exposure_key(r['fs_files'][0]), r['exposure'])
                 self.assertEqual(r['status'], 'subtracted')
+            # Saved diagnostic mode must subtract the chosen CSV, not recompute
+            # a background from the very different contemporaneous FS levels.
+            diagnostics = tmp / 'diagnostics'; diagnostics.mkdir()
+            saved = diagnostics / 'G140M_F100LP_smoothed_bkg.csv'
+            np.savetxt(saved, np.column_stack((wave, np.full(len(wave), 2.), np.zeros(len(wave)))),
+                       delimiter=',', header='wavelength_um,median_bkg_MJy_sr,interpolated', comments='')
+            saved.with_suffix('.json').write_text(json.dumps(dict(grating='G140M', filter='F100LP',
+                units='MJy/sr', contributing_slits=['S200A1'])))
+            observed.clear()
+            with patch.object(bg, 'cube_wavelengths', return_value=wave), \
+                 patch.object(nirspec, 'nrs_ifu_wcs', return_value=[SliceWcs()]), \
+                 patch('jwst.pipeline.Spec3Pipeline', CubeBuilder), \
+                 patch.object(bg, 'estimate_background', side_effect=AssertionError('raw background used')):
+                bg.build_subtracted_cube(reference, association, {'steps': {'master_background': {'skip': False}}},
+                                         [], None, tmp / 'reports', 'TARGET',
+                                         diagnostic_spectra_dir=diagnostics)
+            for (_, values, status), sky in zip(observed, [10., 200.]):
+                np.testing.assert_allclose(values, sky + 3., atol=1e-5)
+                self.assertEqual(status, 'COMPLETE')
+            manifest = json.loads((tmp / 'reports' / 'background_report.json').read_text())
+            self.assertTrue(all(r['background_source'] == 'diagnostic_smoothed_FS' for r in manifest))
             self.assertFalse(list(tmp.glob('fsbg_*')))
             with datamodels.open(files[0]) as original:
                 np.testing.assert_allclose(original.data, 15.)

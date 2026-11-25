@@ -437,6 +437,51 @@ def cube_wavelengths(filename):
     return wave
 
 
+def load_diagnostic_background(directory, grating, filt, output_wavelength):
+    """Load the reviewed black diagnostic curve; never substitute raw FS estimates."""
+    import hashlib
+    path = Path(directory) / f'{str(grating).upper()}_{str(filt).upper()}_smoothed_bkg.csv'
+    if not path.is_file():
+        raise FileNotFoundError(f'FS background requires {path}; rerun the fixed-slit diagnostics')
+    table = np.genfromtxt(path, delimiter=',', names=True)
+    required = {'wavelength_um', 'median_bkg_MJy_sr', 'interpolated'}
+    if table.dtype.names is None or not required.issubset(table.dtype.names):
+        raise ValueError(f'Invalid smoothed FS background columns in {path}')
+    table = np.atleast_1d(table)
+    wave = np.asarray(table['wavelength_um'], float)
+    values = np.asarray(table['median_bkg_MJy_sr'], float)
+    bin_edges(wave)
+    if not np.any(np.isfinite(values)):
+        raise ValueError(f'No finite smoothed FS background in {path}')
+    metadata_path = path.with_suffix('.json')
+    metadata = json.loads(metadata_path.read_text()) if metadata_path.is_file() else {}
+    if metadata.get('grating', str(grating)).upper() != str(grating).upper() or metadata.get('filter', str(filt)).upper() != str(filt).upper():
+        raise ValueError(f'Background configuration mismatch in {metadata_path}')
+    if metadata.get('units', 'MJy/sr') != 'MJy/sr':
+        raise ValueError(f'Expected MJy/sr background in {metadata_path}')
+    # The CSV is a fitted continuum sampled at wavelength centers. Evaluate
+    # that curve at cube centers, without extrapolation or bridging NaN runs.
+    output_wavelength = np.asarray(output_wavelength, dtype=float)
+    bin_edges(output_wavelength)
+    brightness = np.full(output_wavelength.shape, np.nan)
+    valid_indices = np.flatnonzero(np.isfinite(values))
+    for run in np.split(valid_indices, np.flatnonzero(np.diff(valid_indices) > 1) + 1):
+        if len(run) < 2:
+            continue
+        covered = (output_wavelength >= wave[run[0]]) & (output_wavelength <= wave[run[-1]])
+        brightness[covered] = np.interp(output_wavelength[covered], wave[run], values[run])
+    finite = np.isfinite(brightness)
+    count = len(metadata.get('contributing_slits', []))
+    used = dict(file=str(path.resolve()), source='diagnostic_smoothed_FS',
+                sha256=hashlib.sha256(path.read_bytes()).hexdigest(), metadata=metadata,
+                interpolated_input_bins=int(np.count_nonzero(table['interpolated'])),
+                uncertainty='not estimated; science ERR unchanged', row_counts='unknown')
+    return dict(wavelength=np.asarray(output_wavelength), brightness=brightness,
+                uncertainty=np.full(len(brightness), np.nan),
+                n_slits=np.where(finite, count, 0), n_rows=np.zeros(len(brightness), int),
+                used=[dict(used, slit=name) for name in metadata.get('contributing_slits', []) or ['reviewed_csv']])
+
+
 def save_background_spectrum(background, stem):
     """Write the exact cube-grid CSV and master-background FITS, including SB_ERROR."""
     from jwst.master_background.create_master_bkg import create_background
@@ -444,7 +489,10 @@ def save_background_spectrum(background, stem):
     stem.parent.mkdir(parents=True, exist_ok=True)
     with stem.with_suffix('.csv').open('w', newline='') as handle:
         handle.write('# wavelength: micron; brightness and uncertainty: MJy/sr\n')
-        handle.write('# uncertainty: max slit 1.253*1.4826*MAD/sqrt(N_rows); correlations/systematics excluded\n')
+        if any(item.get('source') == 'diagnostic_smoothed_FS' for item in background['used']):
+            handle.write('# fitted-continuum uncertainty and spatial row counts are unknown; science ERR unchanged\n')
+        else:
+            handle.write('# uncertainty: max slit 1.253*1.4826*MAD/sqrt(N_rows); correlations/systematics excluded\n')
         writer = csv.writer(handle)
         writer.writerow(['wave', 'surf_bright', 'sb_error', 'n_slits', 'n_rows'])
         writer.writerows(zip(background['wavelength'], background['brightness'],
@@ -509,9 +557,9 @@ def write_background_report(records, output_dir):
     merged.update({(r['cube'], r['ifu_file']): r for r in records})
     merged = sorted(merged.values(), key=lambda r: (r['cube'], r['exposure'], r['ifu_file']))
     path.write_text(json.dumps(merged, indent=2, allow_nan=False) + '\n')
-    lines = ['Contemporaneous FS backgrounds; each IFU exposure uses only its own FS exposure.',
-             'Slits: S200A1/S200A2/S400A1; source screening status is recorded per background.',
-             'Uncertainty is approximate; retained separately, not propagated into cube ERR.',
+    lines = ['FS subtraction: background_source records saved diagnostic curves or exposure-matched estimates.',
+             'Saved curves use the reviewed diagnostic slit choices, smoothing, and gap interpolation.',
+             'Continuum-fit uncertainty is not estimated; science ERR is unchanged.',
              'TARGET | CUBE | EXPOSURE | MJD START-END | USED SLITS | MISSING BINS | SCREENING | STATUS']
     for record in merged:
         names = ','.join(sorted({r['slit'] for r in record['used']})) or 'NONE'
@@ -557,14 +605,16 @@ def subset_cube_offsets(offset_file, science_files, output_file):
 
 def build_subtracted_cube(reference_cube, association_file, pipeline_parameters,
                           s2d_files, trace_records, background_dir, target,
-                          gap_policy='flag'):
-    """Subtract exposure-matched backgrounds before combining the IFU images.
+                          gap_policy='flag', diagnostic_spectra_dir=None):
+    """Subtract saved diagnostic curves or exposure-matched sky before IFU combination.
 
     reference_cube is the saved unsubtracted cube. Its actual WCS wavelength
     array is used for every background contributing to this cube. Corrected
     calibrations are temporary, with unchanged basenames to preserve cube
     offset-file lookup. Input science files and the unsubtracted cube remain
     intact. A provenance report plus background FITS/CSV spectra are retained.
+    diagnostic_spectra_dir selects the reviewed smoothed grating/filter CSV;
+    otherwise the legacy per-exposure estimator is used.
     """
     from copy import deepcopy
     import tempfile
@@ -597,11 +647,15 @@ def build_subtracted_cube(reference_cube, association_file, pipeline_parameters,
     background_dir = Path(background_dir)
     spectra_dir = background_dir / reference_cube.stem.removesuffix('_s3d')
     records, estimates = [], {}
+    diagnostic_estimate = None
+    if diagnostic_spectra_dir is not None:
+        diagnostic_estimate = load_diagnostic_background(diagnostic_spectra_dir,
+                                                        header['GRATING'], header['FILTER'], wavelength)
     for filename in members:
-        matches = contemporaneous_s2d(filename, s2d_files)
+        matches = contemporaneous_s2d(filename, s2d_files) if diagnostic_estimate is None else []
         key = exposure_key(filename)
         if key not in estimates:
-            estimates[key] = estimate_background(matches, trace_records, wavelength)
+            estimates[key] = estimate_background(matches, trace_records, wavelength) if diagnostic_estimate is None else diagnostic_estimate
         estimate = estimates[key]
         bg_file = save_background_spectrum(estimate, spectra_dir / (key + '_background'))
         start, end = exposure_interval(filename)
@@ -614,6 +668,7 @@ def build_subtracted_cube(reference_cube, association_file, pipeline_parameters,
             uncertainty_missing_bins=int(np.sum(~np.isfinite(estimate['uncertainty']))),
             status='prepared', gap_policy=gap_policy,
             trace_screening_enabled=trace_records is not None,
+            background_source='diagnostic_smoothed_FS' if diagnostic_estimate is not None else 'exposure_matched_FS',
         ))
     if (gap_policy == 'withhold' and any(r['missing_bins'] for r in records)) or all(
             r['missing_bins'] == r['total_bins'] for r in records):

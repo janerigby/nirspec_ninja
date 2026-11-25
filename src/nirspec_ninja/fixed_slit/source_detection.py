@@ -155,11 +155,15 @@ def _detect_source_s2d_detailed(
             return _failure("allowed_source_center_rows must be a 1D Boolean mask matching the spatial rows")
         if not np.any(allowed_centers):
             return _failure("allowed_source_center_rows permits no source centers")
-    width_cap = ny / 2.0
+    # Widths are Gaussian sigma, not FWHM. Enforce an additional physical
+    # FWHM cap so a fitted source cannot be wider than the slit itself.
+    fwhm_per_sigma = 2.35482
+    width_cap = ny / fwhm_per_sigma
     if slit_length_pixels is not None:
         if not np.isfinite(slit_length_pixels) or slit_length_pixels <= 0:
             return _failure("slit_length_pixels must be finite and positive")
-        width_cap = min(width_cap, max_slit_length_fraction * slit_length_pixels)
+        width_cap = min(width_cap, max_slit_length_fraction * slit_length_pixels,
+                        slit_length_pixels / fwhm_per_sigma)
     if widths is None:
         if width_cap < 0.7:
             return _failure("slit-width limit leaves no allowed Gaussian widths")

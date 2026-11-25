@@ -114,7 +114,7 @@ def run_jwst_det1_custom_mask(uncal_file, output_dir, paramdict):
 
 
 def run_extract(L3_destripedir, L3_extractdir, clip_nan=5):
-    """Return a compact directory report, including per-file trace failures."""
+    """Extract CSVs with trace_sig2 and masked non-flat (%) diagnostic headers."""
     from pathlib import Path
     from nirspec_ninja.fixed_slit.extraction import wrap_median_combine_level3_nirspecFS
     report = {'directory': str(Path(L3_destripedir).resolve()),
@@ -122,7 +122,7 @@ def run_extract(L3_destripedir, L3_extractdir, clip_nan=5):
               'status': 'ok', 'files': [], 'reason': None}
     try:
         report['files'] = wrap_median_combine_level3_nirspecFS(
-            L3_destripedir, L3_extractdir, clip_nan=clip_nan, return_report=True)
+            L3_destripedir, L3_extractdir, clip_nan=clip_nan, return_report=True, detect_traces=True)
         if any(item['status'] == 'failed' for item in report['files']):
             report['status'] = 'failed'
         elif not report['files']:
@@ -146,6 +146,8 @@ def summarize_extract(results):
                for report in results)),
         ('trace failures', sum(item.get('trace', {}).get('status') == 'failed'
                                for item in files)),
+        ('non-flat unavailable', sum(item.get('spatial_flatness', {}).get('status') == 'unavailable'
+                                     for item in files)),
         ('empty directories', sum(report['status'] == 'empty' for report in results)),
     )
     for label, count in counts:

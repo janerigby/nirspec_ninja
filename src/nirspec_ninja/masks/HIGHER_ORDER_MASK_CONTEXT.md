@@ -13,7 +13,8 @@ No further investigation or implementation is requested at this pause.
 - Mask full illuminated apertures, including sky, not only object spectra.
 - Clean the whole detector: NSClean works better when its background fit is
   protected from illumination throughout the detector.
-- Extending traces redward/blueward to detector edges is acceptable. Avoid
+- Extend traces redward only to the high-x detector edge. Blueward
+  polynomial continuation is disabled per the user’s corrected requirement. Avoid
   unnecessary vertical widening because the fast read direction is vertical
   and NSClean needs background pixels there.
 - Batch operation must not require human inspection. Unreliable fits should
@@ -34,7 +35,7 @@ New opt-in `mask_grating_extrapolate=True`:
 
 - Uses `aperture_extrapolation.py` to fit full aperture upper/lower edges with
   degree 1–3 polynomials. Degree selection uses withheld-end prediction errors.
-- Continues the bands to both detector-x edges, with vertical margins derived
+- Continues the bands redward only to the high-x detector edge, with vertical margins derived
   from prediction errors. Poor fits warn and widen.
 - Rejects anomalously wide/narrow columns only from fitting, retaining their
   original exclusions. Real IFU WCS footprints for slices 27 and 29 had
@@ -192,6 +193,18 @@ the aperture-prediction code. That change has not yet been implemented.
 G235M/F170LP evidence motivates a paired cleaning comparison; other affected
 configurations still require representative validation.
 
+## Plot requirement for future configurations
+
+The user requires a full-detector summary plot whenever support or validation
+expands to a new grating/filter combination. Show both NRS1 and NRS2, nominal
+WCS apertures, predicted extensions/additional orders, and observed extra flux,
+with an outside-WCS aperture-minus-gap profile. See the required-plots section
+in [README.md](README.md) and its program 3843 examples. Matching cleaned RATEs
+can improve visibility under strong 1/f noise; retain uncleaned measurements
+to assess cleaning-induced changes and label cleaning status and display
+processing. Cleaned and uncleaned products of one exposure are not independent
+data; ask the user for additional exposures if independent confirmation is needed.
+
 ## Next work when the user resumes
 
 1. Obtain representative exposures for other legal configurations and MOS
@@ -214,3 +227,25 @@ The nine standard science configurations in the user's MAST query list were
 agreed: PRISM/CLEAR; G140M/H with F070LP or F100LP; G235M/H with F170LP;
 G395M/H with F290LP. The list is in
 `/Users/jrrigby1/AI_experiments/Coding/MAST_queries/MAST_query_large_nirspec_datasets.py`.
+
+## Default integration, 2026-11-24
+
+The public builder now defaults mask_grating_extrapolate to None: continuation
+runs automatically when IFU masking is enabled for G235M/F170LP,
+G235H/F170LP, or G140H/F100LP. False is an explicit off switch; True retains
+the existing opt-in behavior for other configurations/modes. PRISM remains
+unchanged. The notebook worker already passes True. This uses the existing
+full-aperture boundary continuation, not an illumination-only detection or
+a new extraction calibration. Real-data regeneration and public-builder
+regression checks are retained in the high_grating_validation diagnostics.
+
+Earlier descriptions of False as the default describe the prior API.
+
+## Redward-only correction, 2026-11-24
+
+The user rejected unsupported blueward extrapolation. extend_aperture now
+adds exclusions only beyond the nominal high-x endpoint and records
+direction=redward in fit diagnostics. This applies to IFU, fixed-slit, and
+MOS callers. Nominal footprints, existing exclusions, and local measured
+illumination refinement remain unchanged. Earlier two-sided diagnostic
+figures and masks are historical products, not current continuation policy.

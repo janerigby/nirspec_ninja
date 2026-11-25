@@ -13,6 +13,32 @@ script use shared helpers while keeping their own reduction settings.
 See [installation and notebook setup](../../../INSTALL.md) before running.
 Set worker counts and scientific parameters in the workflow you use.
 
+## Review fixed-slit background diagnostics
+
+The LEGGOS fixed-slit branch creates gradient/continuum plots and a spatial
+non-flatness CSV under each object's `FS/diagnostics/`. It also creates an
+all-1 `FS_bkg_override.txt` starter table there and prints its path. Existing
+override files are preserved, including user edits. Review the plots, then edit
+the table if needed: `1` uses a slit with source masking, `0` excludes it from
+the candidate background, and `-1` keeps the whole valid slit despite detections.
+
+Rerun diagnostics using these local files, without repeating reduction:
+
+```bash
+python ~/AI_experiments/Coding/JWST_pipeline/rerun_LEGGOS_gradients.py --use-bkg-overrides
+```
+
+The normal rerun command retains the central crowding table. Add
+`--targets OBJECT-DIRECTORY` for one object, or `--grating-smoothing 0.2` to
+compare lighter grating-continuum smoothing (default 0.5 microns). PRISM is
+unchanged. Starter values are for review, not automatic confirmation of clean sky.
+
+The exact black curve is saved as `GRATING_FILTER_smoothed_bkg.csv`, including
+inferred gap values and interpolation flags. In the LEGGOS driver, enable
+`run_bgsub=True, background_source='FS'` to subtract this saved curve; use
+`runfs_gradients=False` when reusing a reviewed CSV. Missing matching curves
+cause an error. Subtraction defaults to off and retains the unsubtracted cube.
+
 ## Notebook stage settings
 
 Parameter dictionaries beside the stage calls control the reduction. Explicit

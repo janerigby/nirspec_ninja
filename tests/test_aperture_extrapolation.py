@@ -16,6 +16,9 @@ class ExtrapolationTests(unittest.TestCase):
         region = np.zeros_like(mask)
         report = extend_aperture(mask,region,footprint,40,20)
         self.assertLess(report['withheld_error_pixels'],2)
+        self.assertEqual(report['direction'], 'redward')
+        self.assertTrue(mask[:140, :40].all())
+        self.assertFalse(region[:, :40].any())
         for col in range(200,300):
             y=int(round(28+.0008*(col-40)**2))
             self.assertFalse(mask[y:y+8,col].any())

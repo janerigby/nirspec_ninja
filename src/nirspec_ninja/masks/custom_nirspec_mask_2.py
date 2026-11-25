@@ -1,7 +1,7 @@
 """NIRSpec WCS masks with optional RATE refinement for JWST 3.0 flicker cleaning.
 
 Default grating geometry uses the pipeline's nominal science WCS footprints.
-Optional mask_grating_extrapolate continues full apertures to detector edges,
+Optional mask_grating_extrapolate continues full apertures to the red detector edge,
 with an optical IFU fallback when no nominal footprint falls on the detector.
 These extensions are coverage estimates, not order identifications.
 See docs/masks/HIGHER_ORDER_MASK_CONTEXT.md in the package repository for evidence and next steps.
@@ -298,7 +298,7 @@ def make_custom_NIRSpec_mask(
     mask_MSA=None,
     mask_MSA_by_wcs=False,
     mask_FS_by_wcs=False,
-    mask_grating_extrapolate=False,
+    mask_grating_extrapolate=None,
     mask_by_illumination=False,
     mask_illumination_reference=None,
     mask_illumination_nsigma=5.0,
@@ -348,14 +348,20 @@ def make_custom_NIRSpec_mask(
     references.
     Missing metadata or references raises an error instead of guessing.
 
-    mask_grating_extrapolate=True extends each full WCS aperture to both
-    detector-x edges using degree 1--3 boundary fits chosen by withheld-end
+    mask_grating_extrapolate=None (default) enables aperture continuation for
+    IFU G235M/F170LP, G235H/F170LP, and G140H/F100LP, the configurations
+    with recorded real-data extension checks. False disables it explicitly;
+    True enables it for other grating configurations/modes as well.
+    mask_grating_extrapolate=True extends each full WCS aperture redward only
+    to the high-x detector edge using degree 1--3 boundary fits chosen by withheld-end
     prediction errors. Errors set conservative vertical padding; unreliable
     fits warn and widen. It requires curved WCS masks for MOS/fixed slits.
     No order identification is implied. Prism geometry is unchanged.
     Geometry caching is bypassed and fit diagnostics are saved in an adjacent
     .extrapolation.json file. Existing local illumination refinement can
-    add wings around these extended aperture bands.
+    add wings around these extended aperture bands. Polynomial continuation never adds
+    blueward exclusions; existing exclusions and local measured-illumination
+    refinement remain in effect.
     When no nominal IFU WCS falls on the detector, this option instead projects
     IFU orders 1--3 over the wavelength-reference blue bound through 5.3 microns
     and records a warning. This is provisional optical geometry, not measured
@@ -365,7 +371,7 @@ def make_custom_NIRSpec_mask(
     paths (and msaoper for failed-open flagging). Geometry caching is bypassed
     when overrides are supplied. Otherwise normal CRDS selection applies.
 
-    Default limitation for gratings: IFU/MSA/fixed-slit geometry follows the
+    With extrapolation disabled, IFU/MSA/fixed-slit geometry follows the
     pipeline's nominal science WCS domain. No separate higher-order footprints
     are constructed. Higher-order traces or first-order emission beyond that
     domain can therefore remain unmasked and affect the flicker-noise fit.
@@ -453,11 +459,11 @@ def make_custom_NIRSpec_mask(
         exp_type_override = exp_type_override.strip().upper()
         if exp_type_override not in supported:
             raise ValueError(f'Unsupported exp_type_override: {exp_type_override!r}')
-    for value in (mask_IFU, mask_MSA, mask_FS_strip, mask_failed_open):
+    for value in (mask_IFU, mask_MSA, mask_FS_strip, mask_failed_open, mask_grating_extrapolate):
         if value is not None and not isinstance(value, (bool, np.bool_)):
             raise TypeError('Mask switches must be True, False, or None')
     mask_failed_open = None if mask_failed_open is None else bool(mask_failed_open)
-    for value in (mask_FSprism, mask_box, single_mask, mask_MSA_by_wcs, mask_FS_by_wcs, mask_by_illumination, mask_grating_extrapolate):
+    for value in (mask_FSprism, mask_box, single_mask, mask_MSA_by_wcs, mask_FS_by_wcs, mask_by_illumination):
         if not isinstance(value, (bool, np.bool_)):
             raise TypeError('Mask algorithm switches and single_mask must be boolean')
     if mask_by_illumination and mask_illumination_reference is not None:
@@ -566,7 +572,13 @@ def make_custom_NIRSpec_mask(
         image.meta.subarray.ysize, image.meta.subarray.xsize = science_shape
         use_ifu = selected == 'NRS_IFU' if mask_IFU is None else mask_IFU
         use_msa = selected == 'NRS_MSASPEC' if mask_MSA is None else mask_MSA
-        extrapolate = mask_grating_extrapolate and image.meta.instrument.grating.upper() != 'PRISM'
+        grating = (image.meta.instrument.grating or '').upper()
+        filter_name = (image.meta.instrument.filter or '').upper()
+        if mask_grating_extrapolate is None:
+            extrapolate = bool(use_ifu) and (grating, filter_name) in {
+                ('G235M', 'F170LP'), ('G235H', 'F170LP'), ('G140H', 'F100LP')}
+        else:
+            extrapolate = bool(mask_grating_extrapolate) and grating != 'PRISM'
         if extrapolate and use_msa and not mask_MSA_by_wcs:
             raise ValueError('Grating extrapolation for MOS requires mask_MSA_by_wcs=True')
         if extrapolate and not (use_ifu or use_msa or mask_FS_by_wcs):

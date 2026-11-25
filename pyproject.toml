@@ -9,6 +9,9 @@ description = "Reusable NIRSpec masks and reduction tools"
 requires-python = ">=3.11"
 dependencies = ["jwst>=3.0.0", "numpy", "astropy", "gwcs", "stdatamodels", "scipy", "matplotlib", "pandas", "pysiaf", "astroquery", "requests"]
 
+[project.optional-dependencies]
+jbt = ["jwst-backgrounds"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["nirspec_ninja*"]

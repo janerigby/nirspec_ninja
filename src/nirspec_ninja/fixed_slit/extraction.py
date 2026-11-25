@@ -12,7 +12,43 @@ import numpy as np
 import pandas
 from astropy.io import fits
 from ._extraction_helpers import gethead, find_science_extensions, get_nirspec_good_fixedslit_names, get_keywords_from_jwst_header2, rebin_spec_new
-from .source_detection import wrap_detect_source_s2d, detect_source_s2d
+from .spatial_diagnostics import diagnostic_trace, trace_row_mask, profile, spatial_flatness
+from nirspec_ninja.subtract_background.fs_background import SlitPixels, spatial_pixel_mask
+
+
+def measure_extraction_diagnostics(infile, thisslit, intype, median_2D,
+                                   median_wave_1D, sci_extension, clip_nan=5,
+                                   detect_traces=True):
+    """Measure CSV diagnostics independently of the 1D extraction calculation."""
+    use_error = False
+    if intype == 'S2D':
+        with fits.open(infile, memmap=False) as hdus:
+            sci = hdus[sci_extension]
+            version = sci.header.get('EXTVER', 1)
+            data = np.array(sci.data, dtype=float, copy=True)
+            wave = np.array(hdus['WAVELENGTH', version].data, dtype=float, copy=True)
+            use_error = ('ERR', version) in hdus
+            error = np.array(hdus['ERR', version].data, dtype=float, copy=True) if use_error else np.ones_like(data)
+            dq = np.array(hdus['DQ', version].data, copy=True) if ('DQ', version) in hdus else None
+    else:
+        data = np.array(median_2D, dtype=float, copy=True)
+        wave = np.broadcast_to(median_wave_1D, data.shape).copy()
+        error, dq = np.ones_like(data), None
+    slit = SlitPixels(thisslit, data, wave, error, dq)
+    trace = diagnostic_trace(slit, clip_nan=clip_nan, use_error=use_error) if detect_traces else dict(
+        status='skipped', reason='trace detection disabled', detected=False)
+    flatness = dict(status='unavailable', reason='No usable spatial profile')
+    try:
+        x, _, values, _ = profile(slit, clip_nan=clip_nan)
+        _, excluded = spatial_pixel_mask(slit, clip_nan=clip_nan)
+        rows = np.flatnonzero(~excluded)
+        mask = trace_row_mask(trace, data.shape[0])
+        values[mask[rows[0]:rows[-1] + 1]] = np.nan
+        flatness = spatial_flatness(x, values)
+        flatness['trace_masked'] = bool(mask.any())
+    except ValueError as error:
+        flatness['reason'] = str(error)
+    return trace, flatness
 
 def find_science_extensions_nirspecFS(infile):
     # JWST level 3 calfiles have extensions for each exposure.  Group the science extensions
@@ -258,15 +294,21 @@ def median_combine_level3_nirspecFS2(infile, thisslit, outdir, sci_to_wave_off='
 
     # Prep the header     
     myheaderdict =  get_keywords_from_jwst_header2(infile)
-    trace = {'status': 'skipped', 'reason': 'trace detection disabled'}
-    if detect_traces:
-        if intype.upper() == 'S2D':
-            result = wrap_detect_source_s2d(infile)
-        else:
-            result = detect_source_s2d(median_2D[1:-1])
-        if result['status'] == 'ok':
-            myheaderdict['trace_sig2'] = result['significance']
-        trace = {'status': result['status'], 'reason': result.get('reason')}
+    try:
+        trace, flatness = measure_extraction_diagnostics(
+            infile, thisslit, intype, median_2D, median_wave_1D,
+            sci_extensions[thisslit][0], clip_nan=clip_nan, detect_traces=detect_traces)
+    except Exception as error:
+        reason = f'{type(error).__name__}: {error}'
+        trace = dict(status='failed', reason=reason, detected=False)
+        flatness = dict(status='unavailable', reason=reason)
+    if trace['status'] == 'ok' and trace.get('significance') is not None:
+        myheaderdict['trace_sig2'] = trace['significance']
+    fraction = flatness.get('fractional_departure')
+    myheaderdict['non-flat'] = 100 * fraction if fraction is not None else np.nan
+    myheaderdict['non-flat_status'] = flatness['status']
+    if flatness['status'] != 'ok':
+        myheaderdict['non-flat_reason'] = flatness.get('reason', 'unavailable')
     header = '# Custom background from NIRSpec fixed slit, from median combine of all exposures and\n'
     header += '# spatial direction, from Level 3 CAL or S2D file\n'
     header += '# filename ' + basename(infile) + '\n'
@@ -278,14 +320,14 @@ def median_combine_level3_nirspecFS2(infile, thisslit, outdir, sci_to_wave_off='
     df.attrs['extraction_report'] = {
         'input': str(Path(infile).resolve()), 'slit': thisslit,
         'output': str(Path(outdir + outfile).resolve()),
-        'status': 'ok', 'trace': trace,
+        'status': 'ok', 'trace': trace, 'spatial_flatness': flatness,
     }
     if trace['status'] == 'failed':
         print(f"TRACE FAILED | {Path(infile).resolve()} | slit={thisslit} | "
               f"{trace['reason']} | CSV written; trace_sig2 unavailable", flush=True)
     return df
 
-def wrap_median_combine_level3_nirspecFS(indir, outdir, clip_nan=5, return_report=False):
+def wrap_median_combine_level3_nirspecFS(indir, outdir, clip_nan=5, return_report=False, detect_traces=True):
     """Return spectra, or compact per-file reports while continuing after errors.
 
     The default preserves the historical dictionary of DataFrames and raises
@@ -303,7 +345,7 @@ def wrap_median_combine_level3_nirspecFS(indir, outdir, clip_nan=5, return_repor
                 if thisslit == 'S200B1':
                     continue  # ignore this uncalibrated slit
                 frame = median_combine_level3_nirspecFS2(
-                    infile, thisslit, outdir, clip_nan=clip_nan)
+                    infile, thisslit, outdir, clip_nan=clip_nan, detect_traces=detect_traces)
                 if return_report:
                     reports.append(frame.attrs['extraction_report'])
                 else:

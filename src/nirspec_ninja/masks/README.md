@@ -1,7 +1,7 @@
 # Custom NIRSpec masks for CleanFlickerNoise / NSClean
 
 These tools make custom detector-level background masks for NIRSpec.  IFU, FS, and MOS modes are all supported. The purpose is to mask all illuminated pixels, so that clean flicker noise can fit 1/f noise from non-illuminated pixels. These tools are based on the mask-maker within clean_flicker_noise, but adds functionality:  
-- mask emission a bit redward and blueward of the extraction range; that flux can bias the 1/f noise correction, and in particular, makes vertical artifacts at the blue and red edges of the fixed slits.
+- mask emission a bit redward of the extraction range; that flux can bias the 1/f noise correction, and in particular, makes vertical artifacts at the blue and red edges of the fixed slits.
 - mask the higher orders of the grating.  This is experimental
 - better discriminate between illuminated and non-illuminated pixels in MSA fields. The pipelines is currently too aggressive, in our opinion, at masking MSA shutters; buffer pixels above and below our mask that need not be. This improves 1/f correction in crowded fields.
 
@@ -59,15 +59,30 @@ background gaps between individual fixed slits, use `mask_FS_by_wcs=True`,
 
 ## Grating aperture extrapolation
 
-`mask_grating_extrapolate=True` is **opt-in**; its default is `False`.
+`mask_grating_extrapolate=None` is the default. It automatically enables full
+aperture continuation for IFU G235M/F170LP, G235H/F170LP, and G140H/F100LP,
+which have recorded real-data extension checks. This includes redward coverage
+on NRS2 and continues apertures redward to the high-x detector edge. Other configurations
+and modes retain nominal masking unless explicitly enabled.
+
+Use `mask_grating_extrapolate=False` to disable continuation, or `True` to
+request it for other grating configurations/modes. Fixed-slit/MOS WCS
+requirements below still apply when explicitly enabling it.
 With PRISM selected, the flag is ignored and the normal prism geometry runs.
 This applies to both NRS1 and NRS2. It does not establish that PRISM has no
 additional illumination requiring masking; that question has not been
 validated here for either detector.
 
 For gratings, the algorithm fits each full aperture's upper and lower
-boundaries and continues them to both detector-x edges. It masks the aperture,
+boundaries and continues them redward only to the high-x detector edge. It masks the aperture,
 including faint sky, rather than following only a bright object's spectrum.
+
+Blueward polynomial continuation is disabled: it is not supported by the
+validation performed here. Nominal WCS exclusions are retained. Local
+illumination refinement may still exclude measured emission near nominal
+apertures; this is distinct from extrapolating a band to the blue edge.
+Optical fallback projections for detectors without nominal IFU coverage
+remain wavelength-bounded optical predictions, not polynomial continuation.
 
 The mask includes uncertainty margins while retaining dark gaps between
 apertures where possible. Unreliable boundary fits produce a warning and a
@@ -121,8 +136,10 @@ pointing to `/Users/jrrigby1/Ref_files/crds_cache/jwst_ops` and
 
 ## Pipeline / notebook integration
 
-Add `mask_grating_extrapolate=True` to the keyword arguments of the mask
-builder, rather than to Detector1 or Spec2 step parameters.
+The public builder automatically extends the validated IFU configurations.
+For other configurations, add `mask_grating_extrapolate=True` to the mask
+builder keywords, rather than Detector1 or Spec2 step parameters. The notebook
+worker already explicitly enables continuation for gratings.
 
 For LEGGOS, it belongs in the `options` dictionary inside
 `make_uncal_custom_mask`. An existing "no nominal IFU coverage" branch can
@@ -136,16 +153,40 @@ the mask-generation cell. The worker is
 `nirspec_ninja.pipeline.notebook_workers.make_rate_custom_mask`. Restart the
 kernel after worker-code changes. See the [fixed-slit notebook](../../../Reduce-and-extract_fixedslit-multicores_v2.ipynb).
 
+## Required plots for each new grating/filter configuration
+
+User requirement recorded 2026-11-24: whenever masking support or validation
+expands to a new grating/filter combination, always show the user a summary
+figure like the program 3843 high-grating figures. Include the full extent of
+both NRS1 and NRS2, nominal WCS aperture boundaries, predicted extensions or
+additional-order apertures, and the observed extra illumination. Include a
+measured aperture-minus-adjacent-gap profile outside nominal coverage so that
+geometric predictions and evidence for extra flux are clearly distinguished.
+Do not substitute numerical results or cropped edge views for the full-detector
+summary. Label cases with no outside-WCS region available to test.
+
+Strong 1/f noise can obscure faint extensions. Use matching cleaned RATE files
+for clearer visual comparisons when available, while retaining uncleaned RATE
+measurements to assess changes caused by cleaning; these are versions of the
+same exposure, not independent illumination measurements. Identify the exposure and
+cleaning status, disclose display smoothing or background removal, and distinguish
+slice-to-slice spread from statistical confidence. A cleaned image alone does
+not establish that the cleaning preserves flux or that an order is detected.
+
+Examples: [G235H/F170LP full-detector summary](../../../../Custom_masks_for_NIRSpec_CleanFlickerNoise/diagnostics/high_grating_validation/g235h_f170lp_current_cleaned_summary.png)
+and [G140H/F100LP full-detector summary](../../../../Custom_masks_for_NIRSpec_CleanFlickerNoise/diagnostics/high_grating_validation/g140h_f100lp_cleaned_summary.png).
+
 ## Validation and current limits
 
 See [the detector-by-detector validation table](VALIDATION_COVERAGE.md) for
 which predicted red IFU apertures have been compared with actual illumination.
-Only G235M/F170LP has recorded real-data position comparisons. This mask is
+G235M/F170LP, G235H/F170LP, and G140H/F100LP have recorded real-data
+position comparisons on a small number of IFU exposures. This mask is
 for cleaning background selection and diagnostics, not extraction calibration.
 
-Recorded aperture-position checks cover one G235M/F170LP IFU exposure on
-both detectors. Other grating/filter combinations and MOS exposures remain
-unvalidated. Overlapping predicted paths do not establish individual
+Recorded aperture-position checks cover one G235M/F170LP, two G235H/F170LP,
+and one G140H/F100LP IFU exposure on both detectors. Other grating/filter
+combinations and MOS exposures remain unvalidated. Overlapping predicted paths do not establish individual
 diffraction-order identities. An old-versus-new NSClean correction comparison
 has not been performed.
 

@@ -1,4 +1,4 @@
-"""Conservative detector-x continuation of full aperture footprints.
+"""Conservative redward detector-x continuation of full aperture footprints.
 
 This is geometry, not an order identification or wavelength calibration.
 """
@@ -9,12 +9,14 @@ from numpy.polynomial import Polynomial
 
 def extend_aperture(mask, region, footprint, xstart, ystart, *, padding=1,
                     search_padding=3, label='aperture'):
-    """Fit aperture edges, validate withheld endpoints, mask outside x extent.
+    """Fit aperture edges, validate withheld endpoints, mask beyond the red x endpoint.
 
     Select the simplest degree (1--3) within half a pixel of the best
     bidirectional withheld-end error. Pixel quantization gets a one-pixel
     floor. Failed validation increases padding and emits a warning. Never
-    removes existing exclusions. Returns serializable fit diagnostics.
+    removes existing exclusions. Continuation adds pixels only at larger
+    detector x than the nominal footprint; no blueward continuation is made.
+    Returns serializable fit diagnostics.
     """
     columns = np.flatnonzero(footprint.any(axis=0))
     if not len(columns):
@@ -58,7 +60,7 @@ def extend_aperture(mask, region, footprint, xstart, ystart, *, padding=1,
         fits = [Polynomial([float(np.median(edge))]) for edge in edges]
     height, width = mask.shape
     xx = np.arange(width)
-    outside = (xx < columns[0] + xstart) | (xx > columns[-1] + xstart)
+    outside = xx > columns[-1] + xstart
     distance = np.maximum(x[0] - xx, np.maximum(xx - x[-1], 0))
     span = max(float(x[-1] - x[0]), 1.)
     # Endpoint validation covers 20% of the measured span; inflate for longer
@@ -77,7 +79,7 @@ def extend_aperture(mask, region, footprint, xstart, ystart, *, padding=1,
         mask[start:stop, col] = False
         if region is not None:
             region[max(0, start-search_padding):min(height, stop+search_padding), col] = True
-    return dict(label=label, degree=degree, withheld_error_pixels=error,
+    return dict(label=label, direction='redward', degree=degree, withheld_error_pixels=error,
                 candidate_errors=scores, fit_columns=[int(x[0]), int(x[-1])],
                 nominal_columns=[int(columns[0]+xstart), int(columns[-1]+xstart)],
                 rejected_width_columns=rejected_columns,
