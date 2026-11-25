@@ -53,6 +53,33 @@ extract spectra. The module docstring documents the complete API.
 - `single_mask=True` writes a 2D mask. `False` writes geometric planes for the
   integrations, with supported per-integration DQ exclusions.
 
+### Slitlets crossing MSA quadrants
+
+For PRISM, mask generation automatically separates a slitlet's shutters by
+quadrant when the selected metadata ID and dither contain a cross-quadrant
+slitlet. This prevents JWST from interpreting quadrant-local columns such as
+170, 171, and 1 as one enormous aperture. Each portion is projected in its own
+quadrant, and their footprints are combined with the other mask components.
+The portion without the primary shutter uses a background-only aperture with
+local shutter coordinates; source offsets are not copied across quadrants.
+
+This correction uses a private, temporary MSA metafile for mask WCS assignment
+only. The original metafile, saved mask metadata, and extraction inputs remain
+unchanged. Temporary files are private to each multiprocessing worker and are
+removed afterward. Single-quadrant slitlets retain their existing definitions;
+IFU and separately generated fixed-slit geometry use the existing path.
+
+For gratings, crossing slitlets log a warning and retain the
+existing geometry. Their masks may still exclude large regions: correction and
+aperture extrapolation have not been validated for these cases. A warning is
+not an assurance that such a mask is suitable for cleaning. PRISM normalization
+supports primary-source and background-only crossing slitlets. Multiple primary
+shutters or inconsistent shutter rows within a quadrant portion raise an error.
+
+Real-data checks cover the three PRISM/NRS1 dithers in program 4233 observation
+5: ordinary slitlet WCS definitions and separate fixed-slit masks are unchanged.
+Other crossing configurations, including NRS2, still need real-data validation.
+
 Broad fixed-slit strips and explicit boxes are additional exclusions. To keep
 background gaps between individual fixed slits, use `mask_FS_by_wcs=True`,
 `mask_FS_strip=False`, and `mask_FSprism=False`.

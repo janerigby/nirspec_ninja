@@ -1,5 +1,7 @@
 # Restart summary — 2026-11-23
 
+Before editing, read [USER_PREFERENCES.md](USER_PREFERENCES.md), especially the requirement to check before changing downstream file formats.
+
 ## Current state
 
 Main nirspec_ninja migration is complete. Root:

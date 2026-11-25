@@ -145,3 +145,38 @@ diagnostics. Independent confirmation would require additional exposures.
 
 [Recorded G235H preliminary measurement](../../../../Custom_masks_for_NIRSpec_CleanFlickerNoise/diagnostics/g235h_f170lp/edge_signal_supplied_geometry.json)
 and [G140H preliminary measurement](../../../../Custom_masks_for_NIRSpec_CleanFlickerNoise/diagnostics/high_grating_validation/g140h_f100lp/edge_signal_supplied_geometry.json).
+
+
+## PRISM cross-quadrant MOS mask correction, 2026-11-25
+
+Program 4233 observation 5 PRISM/NRS1 RATE exposures 00002–00004 and their
+matching MSA metafile exercise three cross-quadrant slitlets over three dithers,
+including a background-only third dither. Mask-only normalization projects each
+quadrant portion independently instead of interpreting local columns 1 and
+170/171 as one long aperture. All normalized slit-coordinate spans are below
+10, replacing the erroneous approximately 198-unit spans.
+
+For each dither, all 120 ordinary slitlets retained on NRS1 have identical WCS
+bounding boxes and sampled detector-to-slit coordinates before and after the
+change. Separately generated fixed-slit masks are bit-for-bit identical.
+Representative NRS1 IFU PRISM and G235M masks, including fixed-slit geometry and
+RATE illumination refinement, are bit-for-bit identical with extrapolation
+and failed-open flagging disabled for this isolated comparison. Unit checks
+also cover unaffected-dither bypass, private-file cleanup, background-only
+portions, ambiguous primary shutters, IFU bypass, and grating warning behavior.
+
+These are mask/WCS checks, not cleaning tests or a general calibration of
+boundary-shutter illumination. Real-data crossing coverage remains limited to
+PRISM/NRS1. Grating crossings retain their existing geometry with a logged
+warning; grating extrapolation and crossing cases on NRS2 are unvalidated.
+Original MSA files and extraction inputs are not changed.
+
+Additional PRISM/NRS1 check: program 4233 observation 2 visit 2 exposure 00003
+(dither 2), using its matching MSA metafile. The unmodified algorithm reproduces
+the supplied mask bit for bit, including failed-open flagging. The correction
+handles crossing slitlets 20, 79, 138, and 197; all 122 ordinary on-detector
+slitlet WCS definitions and separate fixed-slit masks remain unchanged.
+Metadata normalization also passes for all three supplied dither masks, with
+maximum slit span 4.4. Only dither 2 has a supplied RATE for full illumination
+refinement. This adds a case with the primary shutter on the opposite side of
+a quadrant boundary; it does not extend validation to gratings or NRS2.

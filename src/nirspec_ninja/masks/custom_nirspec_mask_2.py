@@ -10,6 +10,7 @@ import os
 import json
 import hashlib
 import tempfile
+import logging
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -30,6 +31,71 @@ from jwst.assign_wcs.util import NoDataOnDetectorError
 from jwst.msaflagopen import MSAFlagOpenStep
 from stdatamodels.jwst.datamodels import dqflags, read_metadata
 from .aperture_extrapolation import extend_aperture
+
+
+def _mask_msa_metadata(image, directory, stack):
+    """Privately split PRISM cross-quadrant slitlets for mask WCS only.
+
+    Ordinary records and the original metafile are untouched. Non-primary
+    portions use JWST's background-only aperture branch in their own quadrant.
+    """
+    name = image.meta.instrument.msa_metadata_file
+    if not name:
+        return None
+    source = Path(name)
+    if not source.is_absolute():
+        source = Path(directory) / source
+    with fits.open(source, memmap=False) as hdus:
+        table = hdus['SHUTTER_INFO'].data
+        selected = ((table['msa_metadata_id'] == image.meta.instrument.msa_metadata_id)
+                    & (table['dither_point_index'] == image.meta.dither.position_number))
+        if 'fixed_slit' in table.names:
+            selected &= np.isin(table['fixed_slit'], ['', 'NONE'])
+        crossings = []
+        for sid in np.unique(table['slitlet_id'][selected]):
+            rows = selected & (table['slitlet_id'] == sid)
+            quadrants = np.unique(table['shutter_quadrant'][rows])
+            if len(quadrants) > 1:
+                crossings.append((int(sid), rows, quadrants))
+        if not crossings:
+            return None
+        ids = [sid for sid, _, _ in crossings]
+        if (image.meta.instrument.grating or '').upper() != 'PRISM':
+            logging.getLogger(__name__).warning(
+                f'Cross-quadrant MSA slitlets {ids}: mask correction is only validated '
+                'for PRISM; retaining existing grating geometry, which may over-mask '
+                'large detector regions.')
+            return None
+        used = set(map(int, table['slitlet_id']))
+        maximum = np.iinfo(table['slitlet_id'].dtype).max
+        next_id = 1
+        for sid, rows, quadrants in crossings:
+            primary = rows & (table['primary_source'] == 'Y')
+            if np.count_nonzero(primary) > 1:
+                raise ValueError(f'Cross-quadrant slitlet {sid} has more than one primary shutter')
+            primary_quadrant = (int(table['shutter_quadrant'][primary][0])
+                                if np.any(primary) else int(table['shutter_quadrant'][rows][0]))
+            for quadrant in quadrants:
+                portion = rows & (table['shutter_quadrant'] == quadrant)
+                if len(np.unique(table['shutter_row'][portion])) != 1:
+                    raise ValueError(f'Cross-quadrant slitlet {sid} has inconsistent shutter rows')
+                if quadrant == primary_quadrant:
+                    continue
+                while next_id in used and next_id <= maximum:
+                    next_id += 1
+                if next_id > maximum:
+                    raise ValueError('No unused MSA slitlet ID available for mask geometry')
+                table['slitlet_id'][portion] = next_id
+                used.add(next_id)
+                # Do not copy source offsets across quadrant boundaries.
+                table['primary_source'][portion] = 'N'
+                table['background'][portion] = 'Y'
+        temporary_dir = Path(stack.enter_context(tempfile.TemporaryDirectory(
+            prefix='nirspec-mask-msa-')))
+        target = temporary_dir / source.name
+        hdus.writeto(target)
+    print(f'Mask-only PRISM geometry: split cross-quadrant slitlets {ids}')
+    return str(target)
 
 
 def refine_mask_from_rate(background_mask, rate, nsigma=3.0, pixel_dq=None):
@@ -335,6 +401,10 @@ def make_custom_NIRSpec_mask(
     mask_MSA=True forces MSA geometry regardless of the header/override;
     it requires MSAMETFL, MSAMETID, PATT_NUM and the exposure's MSA file.
     input_dir defaults to the input FITS parent; it locates that MSA file.
+    PRISM slitlets spanning multiple MSA quadrants are split into local
+    apertures in a private temporary metafile for mask geometry only. Ordinary
+    slitlets, the original metafile, and extraction metadata are unchanged.
+    Grating crossings warn and retain existing, potentially overlarge geometry.
     IFU and default MSA exclusions use the JWST 3.0 mask helper algorithms.
     mask_MSA_by_wcs=True replaces MSA bounding-box exclusions with curved
     footprints evaluated at detector pixel centers, removing the extra 0.5
@@ -600,6 +670,10 @@ def make_custom_NIRSpec_mask(
             if mode not in models:
                 model = own(image.copy())
                 model.meta.exposure.type = mode
+                if mode == 'NRS_MSASPEC':
+                    private_msa = _mask_msa_metadata(model, directory, stack)
+                    if private_msa is not None:
+                        model.meta.instrument.msa_metadata_file = private_msa
                 step = wcs_step()
                 step.input_dir = directory
                 model = own(step.run(model))

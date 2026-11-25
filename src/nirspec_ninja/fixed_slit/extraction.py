@@ -319,7 +319,7 @@ def median_combine_level3_nirspecFS2(infile, thisslit, outdir, sci_to_wave_off='
     header += '# spatial direction, from Level 3 CAL or S2D file\n'
     header += '# filename ' + basename(infile) + '\n'
     for key, value in myheaderdict.items():
-        header += '# ' + key + '  ' + str(value) + '\n'
+        header += '##' + key + '  ' + str(value) + '\n'
     with open(outdir + outfile, "w") as handle:
         handle.write(header)    # write the header
         df.to_csv(handle, index=False) # write the file

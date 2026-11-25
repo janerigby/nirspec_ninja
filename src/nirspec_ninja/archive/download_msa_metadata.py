@@ -21,7 +21,8 @@ def download_metadata(uncal):
     header = fits.getheader(uncal, ext=0)
     exp_type = str(header.get("EXP_TYPE", "")).strip().upper()
     if not exp_type.startswith("NRS_") or "MSA" not in exp_type:
-        print(f"Skip {uncal.name}: EXP_TYPE={exp_type}")
+        if exp_type != "NRS_IFU":
+            print(f"Skip {uncal.name}: EXP_TYPE={exp_type}")
         return
 
     filename = str(header.get("MSAMETFL", "")).strip()
@@ -32,7 +33,6 @@ def download_metadata(uncal):
 
     destination = uncal.parent / filename
     if destination.exists():
-        print(f"Already exists: {destination}")
         return
 
     url = "https://mast.stsci.edu/api/v0.1/Download/file?" + urlencode(
