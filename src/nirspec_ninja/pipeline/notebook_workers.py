@@ -123,7 +123,7 @@ def run_extract(L3_destripedir, L3_extractdir, clip_nan=5):
     try:
         report['files'] = wrap_median_combine_level3_nirspecFS(
             L3_destripedir, L3_extractdir, clip_nan=clip_nan, return_report=True, detect_traces=True)
-        if any(item['status'] == 'failed' for item in report['files']):
+        if any(item['status'] in ('failed', 'unusable') for item in report['files']):
             report['status'] = 'failed'
         elif not report['files']:
             report['status'] = 'empty'
@@ -138,7 +138,7 @@ def run_extract(L3_destripedir, L3_extractdir, clip_nan=5):
 def summarize_extract(results):
     """Print one short summary; workers already identify affected paths."""
     files = [item for report in results for item in report['files']]
-    written = sum(item['status'] == 'ok' for item in files)
+    written = sum(item['status'] in ('ok', 'unusable') for item in files)
     problems = []
     counts = (
         ('extraction errors', sum(item['status'] == 'failed' for item in files)
@@ -146,7 +146,10 @@ def summarize_extract(results):
                for report in results)),
         ('trace failures', sum(item.get('trace', {}).get('status') == 'failed'
                                for item in files)),
-        ('non-flat unavailable', sum(item.get('spatial_flatness', {}).get('status') == 'unavailable'
+        ('unusable spectra', sum(item['status'] == 'unusable' for item in files)),
+        ('trace unavailable', sum(item['status'] != 'unusable' and item.get('trace', {}).get('status') == 'unavailable'
+                                  for item in files)),
+        ('non-flat unavailable', sum(item['status'] != 'unusable' and item.get('spatial_flatness', {}).get('status') == 'unavailable'
                                      for item in files)),
         ('empty directories', sum(report['status'] == 'empty' for report in results)),
     )

@@ -34,13 +34,17 @@ def measure_extraction_diagnostics(infile, thisslit, intype, median_2D,
         data = np.array(median_2D, dtype=float, copy=True)
         wave = np.broadcast_to(median_wave_1D, data.shape).copy()
         error, dq = np.ones_like(data), None
+    # CAL median_2D already contains the extractor's edge/NaN-neighbor mask.
+    # Expanding that mask again erases short S1600 cutouts. Retain existing
+    # exclusions without expanding them; raw S2D pixels still need clip_nan.
+    diagnostic_clip = clip_nan if intype == 'S2D' else 0
     slit = SlitPixels(thisslit, data, wave, error, dq)
-    trace = diagnostic_trace(slit, clip_nan=clip_nan, use_error=use_error) if detect_traces else dict(
+    trace = diagnostic_trace(slit, clip_nan=diagnostic_clip, use_error=use_error) if detect_traces else dict(
         status='skipped', reason='trace detection disabled', detected=False)
     flatness = dict(status='unavailable', reason='No usable spatial profile')
     try:
-        x, _, values, _ = profile(slit, clip_nan=clip_nan)
-        _, excluded = spatial_pixel_mask(slit, clip_nan=clip_nan)
+        x, _, values, _ = profile(slit, clip_nan=diagnostic_clip)
+        _, excluded = spatial_pixel_mask(slit, clip_nan=diagnostic_clip)
         rows = np.flatnonzero(~excluded)
         mask = trace_row_mask(trace, data.shape[0])
         values[mask[rows[0]:rows[-1] + 1]] = np.nan
@@ -306,26 +310,30 @@ def median_combine_level3_nirspecFS2(infile, thisslit, outdir, sci_to_wave_off='
         flatness = dict(status='unavailable', reason=reason)
     if trace['status'] == 'ok' and trace.get('significance') is not None:
         myheaderdict['trace_sig2'] = trace['significance']
+    elif trace['status'] == 'unavailable':
+        myheaderdict['trace_sig2'] = np.nan
     fraction = flatness.get('fractional_departure')
     myheaderdict['non-flat'] = 100 * fraction if fraction is not None else np.nan
-    myheaderdict['non-flat_status'] = flatness['status']
-    if flatness['status'] != 'ok':
-        myheaderdict['non-flat_reason'] = flatness.get('reason', 'unavailable')
+    unusable = not np.any(np.isfinite(median_wave_1D) & np.isfinite(median_sci_1D))
     header = '# Custom background from NIRSpec fixed slit, from median combine of all exposures and\n'
     header += '# spatial direction, from Level 3 CAL or S2D file\n'
     header += '# filename ' + basename(infile) + '\n'
-    header += '# Diagnostics: trace_sig2 is corrected sigma; non-flat is spatial non-flatness (%)\n'
     for key, value in myheaderdict.items():
-        header += '##' + key + ' ' + str(value) + '\n'
+        header += '# ' + key + '  ' + str(value) + '\n'
     with open(outdir + outfile, "w") as handle:
         handle.write(header)    # write the header
         df.to_csv(handle, index=False) # write the file
     df.attrs['extraction_report'] = {
         'input': str(Path(infile).resolve()), 'slit': thisslit,
         'output': str(Path(outdir + outfile).resolve()),
-        'status': 'ok', 'trace': trace, 'spatial_flatness': flatness,
+        'status': 'unusable' if unusable else 'ok', 'trace': trace, 'spatial_flatness': flatness,
     }
-    if trace['status'] == 'failed':
+    if unusable:
+        print(f'EXTRACTION UNUSABLE | {Path(infile).resolve()} | slit={thisslit} | '
+              'no finite wavelength/flux bins survive row masking | CSV written with NaNs', flush=True)
+    elif trace['status'] == 'unavailable':
+        print(f"TRACE UNAVAILABLE | {Path(infile).resolve()} | slit={thisslit} | {trace['reason']} | CSV written", flush=True)
+    elif trace['status'] == 'failed':
         print(f"TRACE FAILED | {Path(infile).resolve()} | slit={thisslit} | "
               f"{trace['reason']} | CSV written; trace_sig2 unavailable", flush=True)
     return df

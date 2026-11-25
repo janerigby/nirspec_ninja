@@ -8,6 +8,49 @@ from astropy.io import fits
 from nirspec_ninja.fixed_slit import extraction
 
 class ExtractionTests(unittest.TestCase):
+    def test_sparse_visit_writes_unusable_status_not_a_trace_fit_error(self):
+        wave = np.linspace(1., 5., 100)
+        science = np.full((32, 100), np.nan); science[:, :25] = 2.
+        with tempfile.TemporaryDirectory() as tmp:
+            infile = Path(tmp) / 'sparse_s200a1_s2d.fits'
+            primary = fits.PrimaryHDU(); primary.header['EXPMID'] = 60000.
+            sci = fits.ImageHDU(science, name='SCI'); sci.header['SLTNAME'] = 'S200A1'
+            fits.HDUList([primary, sci, fits.ImageHDU(np.ones_like(science), name='ERR'),
+                fits.ImageHDU(np.broadcast_to(wave, science.shape), name='WAVELENGTH')]).writeto(infile)
+            with patch('builtins.print') as messages:
+                frame = extraction.median_combine_level3_nirspecFS2(str(infile), 'S200A1', tmp + '/')
+            report = frame.attrs['extraction_report']
+            self.assertEqual(report['status'], 'unusable')
+            self.assertEqual(report['trace']['status'], 'unavailable')
+            self.assertEqual(report['trace']['rows_before_margin'], 0)
+            text = Path(report['output']).read_text()
+            self.assertIn('# trace_sig2  nan', text)
+            self.assertIn('# non-flat  nan', text)
+            self.assertNotIn('extraction_status', text)
+            self.assertIn('EXTRACTION UNUSABLE', messages.call_args.args[0])
+            self.assertNotIn('TRACE FAILED', messages.call_args.args[0])
+
+    def test_short_s1600_cal_is_not_row_masked_twice(self):
+        wave = np.linspace(1., 5., 180)
+        for height in (16, 18, 20):
+            with self.subTest(height=height), tempfile.TemporaryDirectory() as tmp:
+                y = np.arange(height)[:, None]
+                science = 2 + .6 * np.exp(-.5 * ((y - (height - 1) / 2) / 1.2)**2) + .1 * np.sin(wave[None, :] * 6)
+                infile = Path(tmp) / 'synthetic_s1600a1_cal.fits'
+                primary = fits.PrimaryHDU(); primary.header['EXPMID'] = 60000.
+                sci = fits.ImageHDU(science, name='SCI'); sci.header['SLTNAME'] = 'S1600A1'
+                fits.HDUList([primary, sci, fits.ImageHDU(np.ones_like(science), name='ERR'),
+                    fits.ImageHDU(np.zeros_like(science, dtype=np.uint32), name='DQ'),
+                    fits.ImageHDU(np.broadcast_to(wave, science.shape), name='WAVELENGTH')]).writeto(infile)
+                frame = extraction.median_combine_level3_nirspecFS2(str(infile), 'S1600A1', tmp + '/', clip_nan=5)
+                trace = frame.attrs['extraction_report']['trace']
+                self.assertEqual(trace['status'], 'ok', trace)
+                self.assertEqual(trace['excluded_rows'], list(range(6)) + list(range(height - 6, height)))
+                text = (Path(tmp) / 'synthetic_s1600a1_cal_extract.csv').read_text()
+                self.assertIn('# trace_sig2  ', text)
+                self.assertIn('# non-flat  ', text)
+                np.testing.assert_array_equal(fits.getdata(infile, 'SCI'), science)
+
     def test_header_diagnostics_mask_a_detected_trace(self):
         wave = np.linspace(1, 5, 100)
         science = np.full((32, 100), 2.); science[12:18] = 20.
@@ -23,8 +66,8 @@ class ExtractionTests(unittest.TestCase):
             self.assertEqual(frame.attrs['extraction_report']['spatial_flatness']['fractional_departure'], 0.)
             self.assertTrue(frame.attrs['extraction_report']['spatial_flatness']['trace_masked'])
             text = (Path(tmp) / 'synthetic_S200A1_s2d_extract.csv').read_text()
-            self.assertIn('##trace_sig2 10.0', text)
-            self.assertIn('##non-flat 0.0', text)
+            self.assertIn('# trace_sig2  10.0', text)
+            self.assertIn('# non-flat  0.0', text)
             np.testing.assert_array_equal(fits.getdata(infile, 'SCI'), science)
 
     def test_cal_diagnostics_use_the_combined_2D_profile(self):
@@ -53,12 +96,14 @@ class ExtractionTests(unittest.TestCase):
             np.testing.assert_allclose(frame['fnu'], 2 + 3 * wave, atol=1e-12)
             np.testing.assert_array_equal(fits.getdata(infile, 'SCI'), science)
             output = (Path(tmp) / 'synthetic_S200A1_s2d_extract.csv').read_text()
-            self.assertIn('##trace_sig2 7.5', output)
-            self.assertIn('##non-flat ', output)
-            self.assertIn('##non-flat_status ok', output)
+            self.assertIn('# trace_sig2  7.5', output)
+            self.assertIn('# non-flat  ', output)
+            self.assertNotIn('non-flat_status', output)
+            self.assertNotIn('Diagnostics:', output)
+            self.assertNotIn('##', output)
             self.assertAlmostEqual(100 * frame.attrs['extraction_report']['spatial_flatness']['fractional_departure'],
                                    100 * .085 / 11., places=8)
-            self.assertNotIn('##trace_sig ', output)
+            self.assertNotIn('# trace_sig  ', output)
             with patch.object(extraction, 'diagnostic_trace') as detector:
                 skipped = extraction.median_combine_level3_nirspecFS2(str(infile), 'S200A1', tmp + '/', detect_traces=False)
             detector.assert_not_called()
@@ -78,7 +123,7 @@ class ExtractionTests(unittest.TestCase):
             self.assertEqual(reports[0]['status'], 'ok')
             self.assertEqual(reports[0]['trace']['status'], 'failed')
             self.assertTrue(Path(reports[0]['output']).exists())
-            self.assertNotIn('##trace_sig2 ', Path(reports[0]['output']).read_text())
+            self.assertNotIn('# trace_sig2  ', Path(reports[0]['output']).read_text())
             message = output.call_args.args[0]
             self.assertIn(str(infile), message)
             self.assertIn('CSV written', message)

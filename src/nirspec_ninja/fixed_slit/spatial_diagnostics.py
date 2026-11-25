@@ -57,6 +57,16 @@ def diagnostic_trace(slit, threshold=2.5, enclosed_flux=.99, clip_nan=5, use_err
     """Detect the strongest continuum trace and enclose 99% of Gaussian flux."""
     from nirspec_ninja.fixed_slit import source_detection as detector
     good, excluded = bg.spatial_pixel_mask(slit, clip_nan=clip_nan)
+    usable_rows = int(np.count_nonzero(~excluded))
+    if usable_rows < 4:
+        passing_before_margin = int(np.count_nonzero(2 * np.sum(good, axis=1) > good.shape[1]))
+        return dict(status='unavailable', reason=(
+            f'Insufficient usable data: {passing_before_margin} rows pass the >50% valid-pixel rule; '
+            f'{usable_rows} remain after the {clip_nan}-row exclusion margin (need at least 4)'),
+            detected=False, significance=None, raw_significance=None, center=None, fwhm=None,
+            excluded_rows=np.flatnonzero(excluded).tolist(), usable_rows=usable_rows,
+            rows_before_margin=passing_before_margin, threshold_sigma=threshold,
+            enclosed_source_flux_fraction=enclosed_flux)
     result = detector.detect_source_s2d(
         np.where(good & ~excluded[:, None], slit.brightness, np.nan),
         error_2d=slit.error if use_error else None, dq_2d=slit.dq, allowed_source_center_rows=~excluded,
