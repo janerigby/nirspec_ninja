@@ -50,7 +50,7 @@ settings take precedence over worker defaults.
 | Masks | Choose aperture masking, illumination refinement, and grating extrapolation in `mask_param_nested_dict`. Masks are overwritten when regenerated. |
 | Spec2 | Requires cleaning and supplies each exposure's custom mask. Choose `fit_method` and cleaning-output flags in the step dictionary. Pipeline `save_results` defaults to True. |
 | Spec3 | Configure the nested step dictionary, including outlier detection. Pipeline products are saved. |
-| Extraction | `clip_nan` controls excluded edge rows; its default is 5. |
+| Extraction | `clip_nan` controls excluded edge rows; its default is 5. Optional `extract_sources=False` enables a separate S2D source pass when set to True; `source_significance_threshold=10.0` requires corrected significance strictly above the threshold. |
 
 The notebook's extraction worker runs continuum source detection and writes
 `trace_sig2` (corrected sigma) and `non-flat` (masked spatial non-flatness, %)

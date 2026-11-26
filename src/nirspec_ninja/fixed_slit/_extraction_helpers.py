@@ -23,6 +23,13 @@ def get_keywords_from_jwst_header2(thisfile):   # common keywords I need all the
     # convert MJD of midpoint of observation to more useful formats
     result['datestamp']    = Time(result['mjd'], format='mjd').to_value('isot')
     result['decimalyear']  = Time(result['mjd'], format='mjd').to_value('decimalyear')
+    from pathlib import Path
+    import json
+    from nirspec_ninja.artifacts.pipeline import read_score_metadata
+    sidecar = Path(thisfile).with_suffix('.artifacts.json')
+    combined = sidecar.exists() and 'input_count' in json.loads(sidecar.read_text())
+    with fits.open(thisfile) as hdus:
+        result.update(read_score_metadata(hdus[0].header, combined=combined))
     return(result)
 def mask_nans(data) :  # return a numpy masked array, with nans masked
     return(np.ma.masked_array(data,np.isnan(data)))

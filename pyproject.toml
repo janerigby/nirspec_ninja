@@ -11,6 +11,7 @@ dependencies = ["jwst>=3.0.0", "numpy", "astropy", "gwcs", "stdatamodels", "scip
 
 [project.optional-dependencies]
 jbt = ["jwst-backgrounds"]
+redshift = ["grizli", "eazy"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -25,6 +26,6 @@ include = ["nirspec_ninja*"]
 "nirspec_ninja.archive" = ["*.md", "docs/*.md"]
 
 "nirspec_ninja.masks" = ["*.md"]
-"nirspec_ninja.fixed_slit" = ["*.md"]
+"nirspec_ninja.fixed_slit" = ["*.md", "data/*.csv"]
 "nirspec_ninja.subtract_background" = ["*.md"]
 "nirspec_ninja.diagnostics" = ["*.md"]

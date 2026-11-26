@@ -56,8 +56,10 @@ def peaks(g,n=5):
  order=np.argsort(g[iy,ix])[::-1][:n]
  return [(int(ix[i]*8+4),int(iy[i]*8+4),float(g[iy[i],ix[i]])) for i in order]
 
-def diagnostic(p,dest,c,g,noise,row,level,illumination=None):
- with fits.open(p,memmap=False) as h: a=h['SCI'].data.astype(float)
+def diagnostic(p,dest,c,g,noise,row,level,illumination=None,data=None):
+ if data is None:
+  with fits.open(p,memmap=False) as h: a=h['SCI'].data.astype(float)
+ else: a=np.asarray(data,dtype=float)
  finite=a[np.isfinite(a)]
  lo,hi=np.percentile(finite,[5,98])
  fig,axs=plt.subplots(2,2,figsize=(14,12))

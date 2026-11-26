@@ -17,7 +17,7 @@ def exposure_stem(path):
 def mask_name(path):
  return exposure_stem(path)+'_mask.fits'
 
-def measure(rate, mask_dir, noise, spectrum_percentile=90, min_rows=30):
+def measure(rate, mask_dir, noise, spectrum_percentile=90, min_rows=30, image=None):
  name=mask_name(rate)
  if isinstance(mask_dir,dict):
   matches=mask_dir.get(name,[])
@@ -35,9 +35,13 @@ def measure(rate, mask_dir, noise, spectrum_percentile=90, min_rows=30):
   path=Path(mask_dir)/name
  if not path.is_file():
   raise FileNotFoundError(f'No matching illumination mask: {path}')
- with fits.open(rate,memmap=False) as h:
-  a=h['SCI'].data.astype(float); valid=np.isfinite(a)&((h['DQ'].data&1)==0)
-  rh=h[0].header
+ if image is None:
+  with fits.open(rate,memmap=False) as h:
+   a=h['SCI'].data.astype(float); dq=h['DQ'].data; rh=h[0].header
+ else:
+  data,dq,rh=image
+  a=np.asarray(data,dtype=float)
+ valid=np.isfinite(a)&((dq&1)==0)
  with fits.open(path,memmap=False) as h:
   mask=h['SCI'].data; mh=h[0].header
   if mask.shape!=a.shape or not np.all(np.isin(mask,[0,1])):

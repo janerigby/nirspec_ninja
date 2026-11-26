@@ -27,6 +27,9 @@ The links above provide usage instructions for each tool.
 ## Development notes
 
 See [migration status and development notes](MIGRATION_STATUS.md) for implementation history, compatibility changes, and remaining work, and [live-service test instructions](scripts/README.md) for WISE and AWS/MAST smoke tests.
+The [fixed-slit source-extraction record](MIGRATION_STATUS.md#fixed-slit-source-extraction--2026-11-26)
+documents the reviewed PRISM background smoothing and remaining scientific
+development, including grating smoothing that has not yet been optimized.
 
 ## GAI acknowledgement: 
 Much of this code was written or adapted using the Codex code assistant version 6.1

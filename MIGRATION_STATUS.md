@@ -1,5 +1,142 @@
 # Migration status and restart notes
 
+## Fixed-slit source extraction — 2026-11-26
+
+### Spectrum-derived galaxy redshift likelihoods
+
+Added `fixed_slit/redshift.py` and `scripts/fit_source_redshifts.py` for a 1D
+redshift scan with grizli FSPS continua and line complexes. It fits measured
+`fnu` only, with nonnegative template coefficients and no fitted background.
+Default eligibility requires measured `trace_sig2 > 10` and `non-flat <= 6%`;
+missing metrics are skipped. Initial spectral LSF support is PRISM, with
+point-source and uniform-illumination cases available separately or together.
+Gratings are skipped pending an appropriate spectral-resolution calibration.
+The initial log(1+z) grid runs from 0 to 12; eazy supplies explicit IGM absorption.
+
+Requested default output is
+`/Users/jrrigby1/SCIENCE/JWST_Data/NIRSpec_FS/FS_source/Redshift_likelyhood`.
+Each fitted input produces likelihood/model CSVs, provenance JSON and a PNG.
+Normalized curves are profile likelihoods, not marginalized photo-z posteriors;
+galaxy fits do not establish source classification. Stellar/Solar System
+alternatives, uncertainty calibration and real-data validation remain needed.
+
+Verified all five suites with the executable reference JWST Python runtime
+under `References_and_Tools`; the four redshift tests also passed after adding
+output-product checks. Tests cover screening, LSF response, synthetic break/line
+recovery, normalized likelihood and PNG writing with supplied synthetic
+templates/IGM. End-to-end real grizli fitting remains unverified: the local
+checkout is missing generated `version.py`, and sregion/eazy are absent from
+this runtime. PyPI installation failed because DNS/network access is unavailable
+in the sandbox. The user must install grizli/dependencies in the reduction
+environment before the real-data fit. Module/CLI docs record this requirement.
+
+Later updates on the same date supersede the original 99%-aperture choice below:
+the default is now an 84%-Gaussian boxcar, motivated by the background-limited
+Gaussian S/N optimum, not a measured optimum for all datasets. `fnu` remains
+measured aperture flux and is plotted. Separate `fnu_extrapolated` and
+`fnu_extrapolated_err` columns divide by the fitted Gaussian's fraction in the
+actual weighted rows, saved as `aperture_model_fraction`. These do not correct
+slit losses or include profile-model uncertainty. `enclosed_flux=.99` recovers
+the prior aperture. Existing background extraction products are unaffected.
+
+The user supplied `prism_PSF_subsampled_x4.csv`, now moved unchanged into
+`fixed_slit/data/` and included in package data. It tabulates FWHM versus
+wavelength for PRISM and several gratings, rather than full PSF images.
+`fixed_slit/psf.py` interpolates these widths within coverage and defines the
+Gaussian source-plus-PSF quadrature model. No unsupported configuration or
+outside-range extrapolation is invented. The current detector still fits the
+collapsed-profile Gaussian; fitting an intrinsic width with this
+wavelength-dependent convolution model remains to be implemented and checked.
+
+Added optional extraction of detected sources to the multiprocessor notebook's
+extraction stage, implemented in `fixed_slit/source_extraction.py`. Existing
+spatial-median background calculations/products are retained. `run_extract`
+accepts `extract_sources=False`, `source_significance_threshold=10.0`, and a
+source output directory. The notebook sets the destination to
+`/Users/jrrigby1/SCIENCE/JWST_Data/NIRSpec_FS/FS_sources/<epoch>/<target>/`.
+Only the strongest continuum trace per calibrated slit/S2D is considered;
+selection requires corrected detector significance strictly above the threshold.
+
+The accepted extraction is boxcar with fractional edge pixels, enclosing 99%
+of the fitted Gaussian profile. Local background uses an inverse-variance mean
+of usable rows outside the aperture. DQ/SCI/ERR/wavelength/WHT validity and
+`clip_nan` exclusions are respected. Incomplete aperture bins remain NaN;
+at least two background pixels are required per bin. Slit/aperture losses are
+not corrected. Surface-brightness spectra are converted to integrated Jy when
+valid pixel-area metadata permit it; otherwise native pixel sums are labeled.
+Optimal extraction remains a possible future improvement, requiring validation
+of wavelength-dependent spatial profiles.
+
+Source CSVs retain the established `# filename` and `##KEYWORD  VALUE`
+metadata format. Columns begin `wave,fnu`; uncertainty, background actually
+subtracted, and pixel counts follow. Headers include detection significance,
+selection threshold, fitted geometry, clipping, units, and source-masked
+spatial non-flatness (`non-flat`, percent). Computed significance/geometry and
+non-flatness are truncated to three decimals for display; copied FITS metadata,
+selection thresholds, calculations and spectral columns retain precision.
+
+Each source CSV has a matching diagnostic PNG: grayscale 2D residual/ERR with
+positive signal black and a high-contrast symmetric asinh stretch; fitted
+center/aperture/background/excluded rows; rotated spatial profile sharing the
+image's spatial axis; source spectrum aligned to native columns with nonlinear
+wavelength labels; and measured versus subtracted background. Pixel-count
+curves were removed from the background panel; counts remain in CSVs and
+coverage in the summary. Labels include corrected significance, threshold,
+FWHM, clipping, spectral coverage and spatial non-flatness. Plot failures retain
+the CSV and are reported separately.
+
+### PRISM background smoothing decision
+
+The initial shared 0.5 µm robust continuum spline suppressed a real 3.3 µm
+background feature, leaving a spurious residual in source spectra. Four
+user-run S2D comparisons evaluated a feature-excluded continuum plus local
+Gaussian smoothing at 0.03, 0.05 and 0.1 µm kernel FWHM, then an unsmoothed
+feature candidate. Local 0.03 µm smoothing retained approximately 98–100% of
+measured feature area but still attenuated the peak. The user selected the
+unsmoothed feature treatment after reviewing its shape, noise and transitions.
+
+Production PRISM extraction now excludes 3.15–3.45 µm from the 0.5 µm continuum
+fit, subtracts measured background samples exactly inside that interval, and
+uses cosine blends across 3.10–3.15 and 3.45–3.50 µm. Missing feature samples
+remain missing. This preserves the measured feature, including its noise,
+while retaining continuum/red-end smoothing. Exact peak/area retention is by
+construction, not an independent accuracy measurement. CSV headers record the
+continuum scale, protected bounds and blend width; the PNG labels the treatment.
+LEGGOS IFU subtraction rules were not changed.
+
+**Grating spectral smoothing has not been optimized in this work.** Its 0.5 µm
+scale is inherited from LEGGOS; only PRISM smoothing has been investigated and
+tuned for this source-extraction workflow.
+
+### Verification and remaining source-extraction work
+
+- User-run standalone suites passed before the later plot/smoothing revisions.
+  The four-example PRISM comparison scripts subsequently completed successfully.
+  The final production protected-feature implementation has new regression
+  checks, but a fresh standalone-suite run and regenerated real-source review
+  are still needed; this sandbox cannot execute the user's Python environment.
+- Optimize grating background smoothing separately for relevant grating/filter
+  combinations: preserve real features while suppressing individual-slit noise.
+  Do not infer grating validation from these PRISM examples.
+- Extend PRISM validation beyond the four reviewed examples, including weaker
+  features, noisier backgrounds, wavelength gaps and boundary coverage.
+- Quantify uncertainty/covariance from the nonlinear continuum fit and JWST
+  resampling. Current source errors retain raw per-column background variance
+  and assume independent pixels; in the protected interval that background term
+  is the direct measurement variance. Continuum-fit systematics are not modeled.
+- Review aperture/slit losses, clipped or broad traces, spatial gradients and
+  contamination of local background rows; the non-flatness score is descriptive,
+  not an automatic rejection criterion.
+- Consider optimal extraction after validating spatial profiles versus
+  wavelength. Multiple-source detection per slit is outside the present scope.
+
+User-run scripts and review products are documented in `scripts/README.md`:
+`test_source_extraction.py`, `compare_source_background_smoothing.py`, and
+`test_prism_background_feature.py`. Local PRISM evidence is in
+`~/AI_experiments/Temp/prism_feature_review/20261126_111918_326okda_` and
+`20261126_112217_aiysvr0n`. The latter contains all four successful unsmoothed
+feature comparisons. These local review files are not package assets.
+
 ## Current status — 2026-11-23 (caller cleanup)
 
 - Functional migration is complete. Both workflows retain their own structure.

@@ -113,7 +113,9 @@ def run_jwst_det1_custom_mask(uncal_file, output_dir, paramdict):
     return rate_file if mask_file is not None else None 
 
 
-def run_extract(L3_destripedir, L3_extractdir, clip_nan=5):
+def run_extract(L3_destripedir, L3_extractdir, clip_nan=5, extract_sources=False,
+                source_significance_threshold=10., source_output_dir=None,
+                grating_smoothing_um=.5, prism_smoothing_um=.5, enclosed_flux=.84):
     """Extract CSVs with trace_sig2 and masked non-flat (%) diagnostic headers."""
     from pathlib import Path
     from nirspec_ninja.fixed_slit.extraction import wrap_median_combine_level3_nirspecFS
@@ -133,6 +135,20 @@ def run_extract(L3_destripedir, L3_extractdir, clip_nan=5):
         report['status'] = 'failed'
         report['reason'] = f'{type(error).__name__}: {error}'
         print(f"EXTRACTION FAILED | {report['directory']} | {report['reason']}", flush=True)
+    if extract_sources:
+        try:
+            from nirspec_ninja.fixed_slit.source_extraction import wrap_extract_sources
+            if source_output_dir is None:
+                raise ValueError('source_output_dir is required when extracting sources')
+            report['sources'] = wrap_extract_sources(
+                L3_destripedir, source_output_dir, source_significance_threshold,
+                clip_nan, background_reports=report['files'],
+                grating_smoothing_um=grating_smoothing_um, prism_smoothing_um=prism_smoothing_um,
+                enclosed_flux=enclosed_flux)
+        except Exception as error:
+            report['sources'] = [dict(status='failed', input=str(L3_destripedir),
+                                      output=None, reason=f'{type(error).__name__}: {error}')]
+            print(f"SOURCE EXTRACTION FAILED | {L3_destripedir} | {error}", flush=True)
     return report
 
 def summarize_extract(results):
@@ -157,7 +173,15 @@ def summarize_extract(results):
         if count:
             problems.append(f'{count} {label}')
     suffix = '; ' + ', '.join(problems) if problems else '; no failures'
-    print(f'Extraction: {written} CSVs written{suffix}.')
+    print(f'Background extraction: {written} CSVs written{suffix}.')
+    if any('sources' in report for report in results):
+        sources = [item for report in results for item in report.get('sources', [])]
+        print('Discrete source extraction: ' + ', '.join(
+            f"{sum(item['status'] == status for item in sources)} {label}"
+            for status, label in [('ok', 'CSVs written'), ('failed', 'failed')]) + '.')
+        plot_failures = sum(item.get('plot_status') == 'failed' for item in sources)
+        if plot_failures:
+            print(f'Source diagnostics: {plot_failures} PNG failures; CSVs retained.')
 
 
 def run_jwst_JR_custom_extract(L3_destripedir, L3_extractdir, clip_nan=5):
@@ -181,9 +205,11 @@ def run_jwst_spec3(asn_file, output_dir, paramdict=None):
     spec3.save_results = True
     print("Starting Spec3:", output_dir, flush=True)
     _close_pipeline_result(spec3.run(asn_file))
+    from nirspec_ninja.artifacts.pipeline import propagate_stage3
+    propagate_stage3(asn_file, output_dir)
 
 
-def save_cleaned_rate_in_l2a(clean_step, source, exposure_type, opmode):
+def save_cleaned_rate_in_l2a(clean_step, source, exposure_type, opmode, artifact_record=None, save_artifact_png=True):
     """Save the Stage 2 cleaning result before subsequent calibration steps."""
     from pathlib import Path
     source = Path(source)
@@ -206,13 +232,22 @@ def save_cleaned_rate_in_l2a(clean_step, source, exposure_type, opmode):
                     del diagnostic.meta.instrument.opmode
             else:
                 diagnostic.meta.instrument.opmode = opmode
+            from astropy.io import fits
+            from nirspec_ninja.artifacts.pipeline import score_cleaned, annotate
+            header = fits.getheader(source)
+            record = score_cleaned(diagnostic.data, diagnostic.dq, header, path,
+                source.parent / 'custom_masks' / (source.stem.removesuffix('_rate') + '_mask.fits'),
+                save_png=save_artifact_png)
             diagnostic.save(str(path))
+            annotate(path, record)
+            if artifact_record is not None:
+                artifact_record.update(record)
         return result
 
     clean_step.run = run_and_save
 
 
-def run_jwst_spec2(infile, output_dir, paramdict, save_results=True):
+def run_jwst_spec2(infile, output_dir, paramdict, save_results=True, save_artifact_png=True):
     """Clean with the matching mask, then calibrate an in-memory fixed-slit view.
 
     Explicit cleaning settings take precedence over fallback defaults. Cleaning
@@ -266,10 +301,15 @@ def run_jwst_spec2(infile, output_dir, paramdict, save_results=True):
             patch_status = install_patch(max_weight=DEFAULT_MAX_WEIGHT)
             getattr(pipeline, cleaning_name).flicker_patch_status = patch_status
             save_patch_record(mask_path, patch_status)
+            artifact_record = {}
             save_cleaned_rate_in_l2a(getattr(pipeline, cleaning_name), source,
-                                     exposure_type, opmode)
+                                     exposure_type, opmode, artifact_record, save_artifact_png)
             result = pipeline.run(rate)
             _close_pipeline_result(result)
+            from nirspec_ninja.artifacts.pipeline import annotate
+            for suffix in ('cal', 's2d'):
+                for product in outdir.glob(source.stem.removesuffix('_rate') + '*_' + suffix + '.fits'):
+                    annotate(product, artifact_record)
             from nirspec_ninja.diagnostics.flicker_noise_diagnostics import write_noise_report
             cleaned_rate = source.with_name(
                 source.stem.removesuffix('_rate') + '_rate_after_cleaning.fits')

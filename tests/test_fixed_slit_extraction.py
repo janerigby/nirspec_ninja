@@ -24,8 +24,8 @@ class ExtractionTests(unittest.TestCase):
             self.assertEqual(report['trace']['status'], 'unavailable')
             self.assertEqual(report['trace']['rows_before_margin'], 0)
             text = Path(report['output']).read_text()
-            self.assertIn('# trace_sig2  nan', text)
-            self.assertIn('# non-flat  nan', text)
+            self.assertIn('##trace_sig2  nan\n', text)
+            self.assertIn('##non-flat  nan\n', text)
             self.assertNotIn('extraction_status', text)
             self.assertIn('EXTRACTION UNUSABLE', messages.call_args.args[0])
             self.assertNotIn('TRACE FAILED', messages.call_args.args[0])
@@ -47,8 +47,8 @@ class ExtractionTests(unittest.TestCase):
                 self.assertEqual(trace['status'], 'ok', trace)
                 self.assertEqual(trace['excluded_rows'], list(range(6)) + list(range(height - 6, height)))
                 text = (Path(tmp) / 'synthetic_s1600a1_cal_extract.csv').read_text()
-                self.assertIn('# trace_sig2  ', text)
-                self.assertIn('# non-flat  ', text)
+                self.assertIn('##trace_sig2  ', text)
+                self.assertIn('##non-flat  ', text)
                 np.testing.assert_array_equal(fits.getdata(infile, 'SCI'), science)
 
     def test_header_diagnostics_mask_a_detected_trace(self):
@@ -66,8 +66,8 @@ class ExtractionTests(unittest.TestCase):
             self.assertEqual(frame.attrs['extraction_report']['spatial_flatness']['fractional_departure'], 0.)
             self.assertTrue(frame.attrs['extraction_report']['spatial_flatness']['trace_masked'])
             text = (Path(tmp) / 'synthetic_S200A1_s2d_extract.csv').read_text()
-            self.assertIn('# trace_sig2  10.0', text)
-            self.assertIn('# non-flat  0.0', text)
+            self.assertIn('##trace_sig2  10.0\n', text)
+            self.assertIn('##non-flat  0.0\n', text)
             np.testing.assert_array_equal(fits.getdata(infile, 'SCI'), science)
 
     def test_cal_diagnostics_use_the_combined_2D_profile(self):
@@ -96,14 +96,17 @@ class ExtractionTests(unittest.TestCase):
             np.testing.assert_allclose(frame['fnu'], 2 + 3 * wave, atol=1e-12)
             np.testing.assert_array_equal(fits.getdata(infile, 'SCI'), science)
             output = (Path(tmp) / 'synthetic_S200A1_s2d_extract.csv').read_text()
-            self.assertIn('# trace_sig2  7.5', output)
-            self.assertIn('# non-flat  ', output)
+            self.assertIn('##trace_sig2  7.5\n', output)
+            self.assertIn('##non-flat  ', output)
             self.assertNotIn('non-flat_status', output)
             self.assertNotIn('Diagnostics:', output)
-            self.assertNotIn('##', output)
+            metadata_lines = [line for line in output.splitlines() if line.startswith('##')]
+            self.assertTrue(metadata_lines)
+            self.assertTrue(all('  ' in line and not line.startswith('## ')
+                                for line in metadata_lines))
             self.assertAlmostEqual(100 * frame.attrs['extraction_report']['spatial_flatness']['fractional_departure'],
                                    100 * .085 / 11., places=8)
-            self.assertNotIn('# trace_sig  ', output)
+            self.assertNotIn('##trace_sig  ', output)
             with patch.object(extraction, 'diagnostic_trace') as detector:
                 skipped = extraction.median_combine_level3_nirspecFS2(str(infile), 'S200A1', tmp + '/', detect_traces=False)
             detector.assert_not_called()
@@ -123,7 +126,7 @@ class ExtractionTests(unittest.TestCase):
             self.assertEqual(reports[0]['status'], 'ok')
             self.assertEqual(reports[0]['trace']['status'], 'failed')
             self.assertTrue(Path(reports[0]['output']).exists())
-            self.assertNotIn('# trace_sig2  ', Path(reports[0]['output']).read_text())
+            self.assertNotIn('##trace_sig2  ', Path(reports[0]['output']).read_text())
             message = output.call_args.args[0]
             self.assertIn(str(infile), message)
             self.assertIn('CSV written', message)

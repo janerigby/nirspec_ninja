@@ -74,7 +74,7 @@ class NotebookStageSettingsTests(unittest.TestCase):
                 result = SimpleNamespace(close=Mock())
                 pipeline = SimpleNamespace(outlier_detection=SimpleNamespace(skip=None),
                                            run=Mock(return_value=result))
-                with patch('jwst.pipeline.Spec3Pipeline', return_value=pipeline):
+                with patch('jwst.pipeline.Spec3Pipeline', return_value=pipeline), patch('nirspec_ninja.artifacts.pipeline.propagate_stage3') as propagate:
                     if params is None:
                         returned = workers.run_jwst_spec3('association.json', 'output')
                     else:
@@ -85,6 +85,7 @@ class NotebookStageSettingsTests(unittest.TestCase):
                 self.assertTrue(pipeline.save_results)
                 self.assertEqual(pipeline.output_dir, 'output')
                 pipeline.run.assert_called_once_with('association.json')
+                propagate.assert_called_once_with('association.json', 'output')
                 result.close.assert_called_once_with()
                 self.assertEqual(params, before)
 
@@ -146,6 +147,10 @@ class NotebookStageSettingsTests(unittest.TestCase):
         self.assertEqual(captured[0][1][0][2], namespace['mask_param_nested_dict'])
         self.assertEqual(captured[1][1][0][2], namespace['spec3_param_nested_dict'])
         self.assertEqual(captured[2][1][0][2], namespace['clip_nan'])
+        self.assertEqual(captured[2][1][0][3], namespace['extract_sources'])
+        self.assertEqual(captured[2][1][0][4], namespace['source_significance_threshold'])
+        self.assertEqual(captured[2][1][0][5],
+                         str(Path(namespace['source_output_dir']) / 'epoch' / 'target'))
 
 
 if __name__ == '__main__':
